@@ -3,7 +3,7 @@
 A running record of what was done, when, and why. Written as the work happens
 rather than reconstructed afterwards.
 
-## 2026-08-29, 09:00-09:15 IST - Sprint 0, commits 1 to 5
+## Sprint 0 as it happened, written at commit 5 (Sat 2026-08-29, 09:00 to 09:15 IST)
 
 The window opened 2026-08-28 18:00 UTC, which is 23:30 local time. Work started
 at 09:00 the following morning, 9.5 hours into the 72, leaving 62.5. That was a
@@ -35,7 +35,7 @@ push, no rebase, no amending a commit that has been pushed, no squashing. When
 something is wrong, it is fixed by a new commit. History is a graded artifact
 here, and the value of an unrewritten one is that it can be checked.
 
-## Sprint 0 -- scaffold, corpus, baseline (Sat 09:02 to 09:36 IST)
+## Sprint 0 in review, written at commit 10 (Sat 09:02 to 09:36 IST)
 
 Eight commits. Nothing here parses JSON yet, and that is the intended state: the
 goal of the first half hour was to make the measuring instrument before the
@@ -52,6 +52,32 @@ thing being measured, so that every later number means something.
 | 6 | 09:29 | 340 vendored fixtures, attribution, checksum manifest |
 | 7 | 09:34 | `Value`, `Number`, `ErrorKind`, `ParseError`, a rejecting `parse()` |
 | 8 | 09:36 | conformance harness and its baseline |
+
+### The two tables above disagree, and git settles it
+
+Both were typed from memory of the previous half hour rather than read out of
+`git log`, and they drift in two ways. The numbering diverges after the
+documentation commits, because STDLIB.md was a commit of its own that the first
+table folded into commit 5 and the second recorded as `5b`, which leaves
+everything after it off by one. The times are rounded, by up to four minutes.
+The numbering used from here on is the one git records:
+
+| Commit | Time | Subject |
+|---|---|---|
+| b2182bf | 09:00:13 | chore: scaffold cargo package with an empty dependency manifest |
+| 0a4f330 | 09:06:45 | chore: pin line endings and mark vendored fixtures as such |
+| 06320bc | 09:08:49 | chore: add MIT license, pin toolchain 1.98.0, fix the release profile |
+| 4850cc1 | 09:11:26 | refactor: split into a library and a thin binary, and lock down lints |
+| a9fd5ce | 09:16:09 | docs: add README, build log and claims ledger |
+| 9f55e16 | 09:18:25 | docs: add the standard library substitution ledger |
+| 74bfe2e | 09:28:58 | test: vendor the 340-file JSONTestSuite conformance corpus |
+| 73f9f27 | 09:33:51 | feat: add the value model, the error taxonomy, and the input gate |
+| 5c8901f | 09:36:41 | test: add the conformance harness and record the baseline |
+| ab9788b | 09:41:31 | docs: log sprint 0, the decisions behind it, and the baseline |
+
+Both tables are left as they were written. A log kept while the work happens is
+worth having because it records what was believed at the time; one quietly
+edited afterwards to agree with itself is a tidier guess and nothing more.
 
 ### The baseline
 
@@ -151,3 +177,82 @@ not pre-filled with the stub's blanket rejection.
 
 Ahead of schedule by roughly fifty minutes against the plan. That buffer goes
 into the parser, not into more scaffolding.
+
+## Sprint 1 -- grammar, serializer, CLI, query language (Sat 09:41 to 12:23 IST)
+
+| Commit | Time | Subject |
+|---|---|---|
+| d53279e | 09:48:00 | feat: scan literals and numbers, and enforce the RFC number grammar |
+| 91bd3b9 | 09:54:15 | feat: scan strings, parse arrays, and bound nesting depth |
+| bcda02e | 10:03:32 | feat: parse objects, completing the RFC 8259 grammar |
+| cdf75fc | 10:07:55 | feat: serialize values back to JSON, matching jq byte for byte |
+| 2e2a413 | 10:12:34 | feat: a command line tool, with the identity filter |
+| aa4d56b | 10:29:38 | feat: the filter language -- paths, brackets, iteration, pipe and comma |
+| bc24c59 | 10:45:50 | fix: match jq's ? scope, exit codes and error text, all measured |
+| 743a0dd | 11:02:40 | feat(parse): read a stream of documents, the way jq does |
+| a6e35b5 | 11:26:17 | feat(cli): apply the filter to every document in the stream |
+| 668e38b | 12:23:04 | docs: capture the proof that the dependency graph is empty |
+| dce1f51 | 12:23:16 | test: record the decision taken on every implementation-defined case |
+| a62ef4d | 12:39:41 | docs: mark the nine substitutions that are actually shipped |
+
+### The schedule was wrong about where the risk was
+
+The plan reserved most of Saturday for RFC 8259 conformance and left the query
+language for Sunday. Conformance finished at 10:03, in the commit that completed
+the object grammar: 95 of 95 accepted, 188 of 188 rejected, 283 of 283. The
+reason is ordering rather than speed. The corpus was vendored and the harness
+written before the first line of the grammar existed, so every commit was scored
+against all 318 files instead of being tested against a handful and audited
+afterwards. The query language then landed at 10:29 and 10:45, about eleven
+hours before the plan expected it.
+
+The hours that bought went into two things the plan did not contain: reading a
+stream of documents the way jq does, and writing the evidence files.
+
+### Measured against jq rather than assumed
+
+jq 1.8.1 was run under WSL for every compatibility claim, because its manual
+documents almost none of this. Three results changed the code.
+
+`?` forgives only the step it is attached to. `1 | .a.b?` is an error, because
+the `?` marks `.b` while the failure happened at `.a`; `1 | (.a.b)?` is how a
+whole path is caught. That is an `OnError` flag per path step plus a separate
+node for the parenthesised form, and it was implemented backwards first.
+
+Exit codes are 2 for a bad flag or an unopenable file, 3 for a filter that does
+not compile, and 5 for both malformed input and a filter that fails at runtime.
+This project had been using 2 for malformed input, which was simply wrong.
+
+jq truncates a value quoted in an error message to eleven characters followed by
+three dots, which cuts anything fifteen characters or longer. The first guess
+was thirty-two. It was caught because the assertion quotes jq's output instead
+of describing it.
+
+### Two divergences from jq, kept deliberately
+
+Numbers are re-emitted from the bytes that were read, so `1e2` stays `1e2` where
+jq prints `1E+2`, and `0.1e-5` stays as written where jq prints `0.000001`.
+Matching jq here would mean implementing decimal canonicalisation in order to
+produce a less faithful answer.
+
+A stream's exit status accounts for every document rather than the last one.
+`printf '1 {"a":2}' | jq .a` prints an error and exits 0, so the failure
+disappears from a script running under `set -e`. Here it exits 5.
+
+### Where this is stricter than jq
+
+jq accepts `inf`, `NaN`, `+1`, `.5`, `5.`, `01`, `00`, `1.` and `0.` at exit 0.
+RFC 8259 permits none of them. This was nearly mistaken for nine bugs of our own
+before the corpus was consulted: the 188 of 188 rejection score is that
+strictness being measured.
+
+### Discharged from the list above
+
+`tests/i_decisions.tsv` now exists, written by a test that regenerates it under
+`UPDATE_I_DECISIONS=1` and otherwise asserts the recorded decisions still match
+the parser -- ten accepted, twenty-five rejected, each rejection carrying its
+reason. A count alone would have proved little, since a different ten accepted
+would print the same summary line. The dependency claim is captured the same
+way, as command output in `deps-proof.txt` rather than a sentence. Still owed:
+the README needs the conformance report and the divergence table, and the caret
+renderer has not been written.
