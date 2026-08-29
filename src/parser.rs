@@ -156,6 +156,54 @@ fn insert(entries: &mut Vec<(String, Value)>, key: String, value: Value) {
     }
 }
 
+/// A stream of documents: one value after another, separated by nothing more
+/// than optional whitespace.
+///
+/// Kept deliberately apart from [`parse_document`], which has to go on refusing
+/// a second value so that the `n_` corpus fixtures ending in one stay rejected.
+pub(crate) struct Documents<'a> {
+    /// Position in the input, carried across documents.
+    cursor: Cursor<'a>,
+    /// Set once a document has failed to parse.
+    ///
+    /// After a syntax error the cursor sits on the offending byte, and there is
+    /// no way to know where the next document was meant to start. Resuming would
+    /// turn one mistake into a cascade of them, so the stream ends instead --
+    /// which is also what `jq` does, measured.
+    stopped: bool,
+}
+
+impl<'a> Documents<'a> {
+    /// Start reading documents from the beginning of `input`.
+    pub(crate) fn new(input: &'a [u8]) -> Self {
+        Self {
+            cursor: Cursor::new(input),
+            stopped: false,
+        }
+    }
+}
+
+impl Iterator for Documents<'_> {
+    type Item = Result<Value, ParseError>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.stopped {
+            return None;
+        }
+        self.cursor.skip_whitespace();
+        if self.cursor.is_eof() {
+            return None;
+        }
+        match parse_value(&mut self.cursor, 0) {
+            Ok(value) => Some(Ok(value)),
+            Err(error) => {
+                self.stopped = true;
+                Some(Err(error))
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::MAX_DEPTH;
