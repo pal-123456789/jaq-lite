@@ -87,7 +87,10 @@ that refuses to flip an entry it cannot evidence. An entry that still says
     reason. That is the whole feature those crates are usually pulled in for.
     What they carry besides it is multi-span layout and a Unicode display-width
     table, and neither is needed to point at one position in one line.
-    *Where:* `src/diag.rs` · *Status:* shipped
+    One renderer serves both parsers: a document that is not JSON and a filter
+    that does not compile print the same three lines, and both count columns with
+    the same function, so a message and its caret cannot disagree.
+    *Where:* `src/diag.rs`, `src/query.rs` · *Status:* shipped
 
 11. **Normally:** `criterion`. **Instead:** a single `std::time::Instant`
     measurement around a fixed workload.

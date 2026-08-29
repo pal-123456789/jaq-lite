@@ -67,8 +67,17 @@ impl Filter {
     ///
     /// # Errors
     ///
-    /// Returns the reason and the byte offset if the filter does not parse.
+    /// Returns the reason, the byte offset, and the line and column that offset
+    /// falls on, if the filter does not parse.
     pub fn compile(source: &str) -> Result<Self, FilterError> {
+        Self::parse(source).map_err(|error| error.at(source))
+    }
+
+    /// The body of [`Filter::compile`].
+    ///
+    /// Split out so that every error leaves through the one `map_err` above,
+    /// which is the only place the offset and the source text are both in hand.
+    fn parse(source: &str) -> Result<Self, FilterError> {
         let tokens = tokenize(source)?;
         if tokens.is_empty() {
             return Ok(Self {
@@ -159,11 +168,32 @@ fn forgive(node: Node) -> Node {
 pub struct FilterError {
     kind: FilterErrorKind,
     offset: usize,
+    line: usize,
+    column: usize,
 }
 
 impl FilterError {
+    /// Build an error at a byte offset in the filter text.
+    ///
+    /// The line and column start out as the values for a single-line filter,
+    /// which is what almost every filter is, and are corrected by [`Self::at`]
+    /// on the way out of [`Filter::compile`]. The parser tracks offsets and does
+    /// not carry the source, so that boundary is the one place both are in hand.
     fn new(kind: FilterErrorKind, offset: usize) -> Self {
-        Self { kind, offset }
+        Self {
+            kind,
+            offset,
+            line: 1,
+            column: offset + 1,
+        }
+    }
+
+    /// Measure where this error's offset actually falls within `source`.
+    fn at(mut self, source: &str) -> Self {
+        let (line, column) = crate::error::locate(source.as_bytes(), self.offset);
+        self.line = line;
+        self.column = column;
+        self
     }
 
     /// What went wrong.
@@ -177,11 +207,35 @@ impl FilterError {
     pub fn offset(&self) -> usize {
         self.offset
     }
+    /// The 1-based line of the filter text the failure is on.
+    #[must_use]
+    pub fn line(&self) -> usize {
+        self.line
+    }
+
+    /// The 1-based column, counted in characters rather than bytes.
+    ///
+    /// Characters rather than bytes so that this number and the caret drawn
+    /// under the filter cannot disagree.
+    #[must_use]
+    pub fn column(&self) -> usize {
+        self.column
+    }
 }
 
 impl fmt::Display for FilterError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "filter, column {}: {}", self.offset + 1, self.kind)
+        // A filter is one line unless someone went out of their way, so naming
+        // line 1 on every message would be noise.
+        if self.line == 1 {
+            write!(f, "filter, column {}: {}", self.column, self.kind)
+        } else {
+            write!(
+                f,
+                "filter, line {}, column {}: {}",
+                self.line, self.column, self.kind
+            )
+        }
     }
 }
 
@@ -1029,9 +1083,31 @@ mod tests {
     fn a_filter_error_points_at_the_column_that_is_wrong() {
         let error = wont_compile(".a %");
         assert_eq!(error.offset(), 3);
+        assert_eq!((error.line(), error.column()), (1, 4));
         assert_eq!(
             error.to_string(),
             "filter, column 4: `%` has no meaning here"
+        );
+    }
+
+    #[test]
+    fn a_filter_column_counts_characters_and_not_bytes() {
+        // The quoted name is one character written as two bytes. Counting bytes
+        // would say column 9 and draw the caret one place right of the `%`.
+        let filter = String::from_utf8(vec![b'.', b'[', b'"', 0xc3, 0xa9, b'"', b']', b' ', b'%'])
+            .expect("valid UTF-8");
+        let error = wont_compile(&filter);
+        assert_eq!(error.offset(), 8);
+        assert_eq!((error.line(), error.column()), (1, 8));
+    }
+
+    #[test]
+    fn a_filter_spanning_lines_reports_the_line_it_failed_on() {
+        let error = wont_compile(".a |\n.b %");
+        assert_eq!((error.line(), error.column()), (2, 4));
+        assert_eq!(
+            error.to_string(),
+            "filter, line 2, column 4: `%` has no meaning here"
         );
     }
 

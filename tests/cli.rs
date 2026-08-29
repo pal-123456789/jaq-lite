@@ -136,6 +136,26 @@ fn a_filter_that_does_not_compile_has_its_own_exit_code() {
     assert!(result.stderr.contains("column"), "got: {}", result.stderr);
 }
 
+/// The filter gets the same treatment a document gets: a summary line, then the
+/// source with a caret under the character that was wrong.
+#[test]
+fn a_filter_that_does_not_compile_draws_a_caret_under_it() {
+    let result = run(&[".a %"], "null");
+    assert_eq!(result.code, Some(3), "stderr was: {}", result.stderr);
+    let lines: Vec<&str> = result.stderr.lines().collect();
+    assert_eq!(
+        lines.len(),
+        4,
+        "a summary line and a three-line snippet: {lines:?}"
+    );
+    assert_eq!(
+        lines[0],
+        "jaq-lite: filter, column 4: `%` has no meaning here"
+    );
+    assert_eq!(lines[2], "1 | .a %");
+    assert_eq!(lines[3], "  |    ^");
+}
+
 #[test]
 fn a_filter_that_cannot_run_has_its_own_exit_code() {
     let result = run(&[".a"], "[1]");

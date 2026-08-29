@@ -83,13 +83,6 @@ impl Failure {
             message: message.into(),
         }
     }
-
-    fn filter(message: impl Into<String>) -> Self {
-        Self {
-            code: EXIT_FILTER,
-            message: message.into(),
-        }
-    }
 }
 
 /// The command line after parsing.
@@ -126,8 +119,24 @@ fn run() -> Result<(), Failure> {
         return Ok(());
     };
 
-    let filter =
-        Filter::compile(&options.filter).map_err(|error| Failure::filter(error.to_string()))?;
+    // Reported here rather than through `?`: the caret needs the filter text as
+    // well as the error, and this is the scope that holds both.
+    let filter = match Filter::compile(&options.filter) {
+        Ok(filter) => filter,
+        Err(error) => {
+            report(&error);
+            show(&jaq_lite::diag::snippet_at(
+                options.filter.as_bytes(),
+                error.offset(),
+                error.line(),
+                error.column(),
+            ));
+            return Err(Failure {
+                code: EXIT_FILTER,
+                message: String::new(),
+            });
+        }
+    };
     let stdout = io::stdout();
     let mut out = io::BufWriter::new(stdout.lock());
 

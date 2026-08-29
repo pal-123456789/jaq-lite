@@ -129,6 +129,21 @@ its character. A long line is cut around the caret with an ellipsis on either
 side: minified JSON is one line and can be megabytes, and a failure late in a
 large document must not print the document to standard error.
 
+A filter that does not compile is drawn by the same renderer, because a filter is
+also source text with a position in it:
+
+    $ printf 'null' | jaq-lite .a%
+    jaq-lite: filter, column 3: `%` has no meaning here
+      |
+    1 | .a%
+      |   ^
+    [exit 3]
+
+One renderer, one column rule, and two callers that each have a byte offset and
+the bytes it points into. The filter parser counts its columns with the function
+the JSON parser uses, so the number in the message and the position of the caret
+cannot drift apart in either of them.
+
 ## jq compatibility
 
 Output is byte-compatible with `jq` wherever a choice exists. Every claim in this

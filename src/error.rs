@@ -177,7 +177,10 @@ impl std::error::Error for ParseError {}
 /// bytes. Working on bytes rather than on `str` is deliberate: this has to
 /// produce a sensible position for input that is not valid UTF-8 at all, which
 /// is a case a `char_indices` walk cannot reach.
-fn locate(input: &[u8], offset: usize) -> (usize, usize) {
+///
+/// Shared with the filter parser, which counts columns in filter text by the
+/// same rule, so that one caret renderer can serve both.
+pub(crate) fn locate(input: &[u8], offset: usize) -> (usize, usize) {
     let end = offset.min(input.len());
     let mut line = 1;
     let mut line_start = 0;
