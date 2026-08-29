@@ -36,15 +36,28 @@ jobs:
       # rustup is already on the runner and everything else is cargo.
       - uses: actions/checkout@v4
 
-      - name: Pin the toolchain to the version Cargo.toml names
+      - name: Pin the toolchain, and check every file that names it
         run: |
+          # Three files name the compiler: Cargo.toml, rust-toolchain.toml, and
+          # the literal below. Until this commit nothing compared them, and a
+          # drifted rust-toolchain.toml would have won silently -- it overrides
+          # `rustup default` inside this directory, so the toolchain installed
+          # on the next line is not necessarily the one that compiles.
           pin="$(sed -n 's/^rust-version = "\(.*\)"$/\1/p' Cargo.toml)"
-          echo "Cargo.toml pins rust $pin"
+          chan="$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)"
+          echo "Cargo.toml rust-version    $pin"
+          echo "rust-toolchain.toml        $chan"
+          test -n "$pin"
           test "$pin" = "1.98.0"
+          test "$chan" = "$pin"
           rustup toolchain install "$pin" --profile minimal --component clippy --component rustfmt
           rustup default "$pin"
           rustc --version
           cargo --version
+          # And the compiler that will actually run, rather than the one that was
+          # asked for two lines ago.
+          rustc --version | grep -qF "rustc $pin"
+          cargo --version | grep -qF "cargo $pin"
 
       - name: The dependency graph is a single node
         run: |
@@ -91,15 +104,28 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Pin the toolchain to the version Cargo.toml names
+      - name: Pin the toolchain, and check every file that names it
         run: |
+          # Three files name the compiler: Cargo.toml, rust-toolchain.toml, and
+          # the literal below. Until this commit nothing compared them, and a
+          # drifted rust-toolchain.toml would have won silently -- it overrides
+          # `rustup default` inside this directory, so the toolchain installed
+          # on the next line is not necessarily the one that compiles.
           pin="$(sed -n 's/^rust-version = "\(.*\)"$/\1/p' Cargo.toml)"
-          echo "Cargo.toml pins rust $pin"
+          chan="$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)"
+          echo "Cargo.toml rust-version    $pin"
+          echo "rust-toolchain.toml        $chan"
+          test -n "$pin"
           test "$pin" = "1.98.0"
+          test "$chan" = "$pin"
           rustup toolchain install "$pin" --profile minimal
           rustup default "$pin"
           rustc --version
           cargo --version
+          # And the compiler that will actually run, rather than the one that was
+          # asked for two lines ago.
+          rustc --version | grep -qF "rustc $pin"
+          cargo --version | grep -qF "cargo $pin"
 
       # The four assertions are the gate, and the script exits non-zero if any
       # of them fails: two builds in directories whose paths differ in length

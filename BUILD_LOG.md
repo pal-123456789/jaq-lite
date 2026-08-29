@@ -372,3 +372,54 @@ in this file, because a comparison step that silently compares nothing is worse
 than no step at all -- it reports success. The same `sed` pattern was run against
 this file before the workflow was committed, and cross-checked against an
 independent extraction, so the two cannot have drifted at the moment of writing.
+
+## Two checks that were not checking
+
+Both were found by going looking, and both are recorded here rather than quietly
+repaired. A project whose argument is that an unfalsifiable check is worthless
+does not get to make an exception for its own checks.
+
+The first was in CI. Three files name the compiler -- `rust-version` in
+`Cargo.toml`, `channel` in `rust-toolchain.toml`, and a literal in the
+workflow -- and nothing compared them. The pin step read the manifest and
+asserted it equalled the literal, which sounds sufficient until you notice which
+file wins: `rust-toolchain.toml` overrides `rustup default` inside this
+directory, so the toolchain the workflow installs is not necessarily the one
+that compiles. A `rust-toolchain.toml` edited to some other channel would have
+produced a green run, on a compiler nobody named, under a step whose own name
+claimed to have pinned it. The step in both jobs now reads both files, asserts
+they agree, and then asserts that `rustc --version` and `cargo --version` report
+the pinned version -- the compiler that will actually run, rather than the one
+that was requested two lines earlier.
+
+The second was in the local check run before that workflow was committed, and it
+is the more instructive of the two. The section above states that the `sed`
+pattern was "cross-checked against an independent extraction, so the two cannot
+have drifted". Both extractions did run, both printed the same sixty-four
+characters, and both are in that transcript. The *comparison* did not run.
+PowerShell had flattened the single-element result to a bare string, so indexing
+it returned the character `4`; the method call against a character threw; the
+exception was non-terminating, so the enclosing statement was abandoned and the
+check went on to print its success line.
+
+Nothing downstream of it was wrong. The pattern is correct, the values do match,
+and the committed workflow is the one that was intended. But for the length of
+one commit this log asserted an agreement on the strength of an exception. So the
+comparison has been re-run in the form that produced this commit, across all
+three patterns the workflow depends on, with the *type* of each result asserted
+before its value is compared:
+
+    Cargo.toml           rust-version   1.98.0
+    rust-toolchain.toml  channel        1.98.0
+    BUILD_LOG.md         recorded hash  46df3c5524e7e26ff84fd830a1047d555c6f1cd1e1ff8162878f99911a2a885e
+
+Each was extracted twice -- once by GNU `sed`, once by an independent regex --
+and the two results compared. An extraction that yields no line, or more than
+one, or one line whose type is not a string, stops the commit before anything is
+written. And because "the pattern that was tested" and "the pattern that ships"
+are two different strings until something says otherwise, each tested pattern is
+also required to appear, byte for byte, in the workflow file being written.
+
+Which is the failure mode the reproducible-build harness spends an entire control
+build guarding against, arriving through a different door. A check that cannot
+fail reports success. So does a check that does not execute.
