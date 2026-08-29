@@ -256,3 +256,82 @@ would print the same summary line. The dependency claim is captured the same
 way, as command output in `deps-proof.txt` rather than a sentence. Still owed:
 the README needs the conformance report and the divergence table, and the caret
 renderer has not been written.
+
+## Reproducible build
+
+`cargo build --release` produces the same bytes twice. The check is
+`scripts/reproducible_build.sh`, it exits non-zero on any failure so CI can gate
+on it, and the transcript below is its output against this commit on
+`x86_64-unknown-linux-gnu`.
+
+Disclosure, because it matters more than the result: the *approach* was designed
+and measured on 2026-08-26, before the window opened. That work established
+three things -- that the three keys in `[profile.release]` are sufficient and
+that RUSTFLAGS is a byte-for-byte no-op once they are set, that two build
+directories must differ in path *length*, and that a control build which must
+differ is the only thing that makes a matching pair of hashes evidence. Those
+experiments are prep notes and are not in this repository. The script here was
+written inside the window from that design, and every number below was produced
+by it, here, now.
+
+    jaq-lite reproducible build check
+      crate root        /mnt/d/zero-dep/jaq-lite
+      toolchain         rustc 1.98.0 (88d9e12ae 2026-08-18)
+                        cargo 1.98.0 (797e8a9bc 2026-08-05)
+      path A            /tmp/tmp.LPTLhYvurB/a (21 chars)
+      path B            /tmp/tmp.LPTLhYvurB/abbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb (56 chars)
+      path length delta 35
+
+      A         46df3c5524e7e26ff84fd830a1047d555c6f1cd1e1ff8162878f99911a2a885e  468704 bytes
+      B         46df3c5524e7e26ff84fd830a1047d555c6f1cd1e1ff8162878f99911a2a885e  468704 bytes
+      control   49d32a942d2f88887b3bab8ba9a4ac7d2da2244e3cfdbabcc44705b43f1e50f5  5753016 bytes
+
+    RESULT
+      1  two builds, unequal path lengths, same hash   PASS
+      2  control with debug=2 strip=none must differ   PASS
+      3  no build path, home, rustup or cargo in it    PASS  (0 hits over 6 needles)
+      4  the two sizes are equal                       PASS
+      login name in the binary                        absent
+
+      sha256  46df3c5524e7e26ff84fd830a1047d555c6f1cd1e1ff8162878f99911a2a885e
+      bytes   468704
+      verify  git clone, then: cargo build --release --locked --offline && sha256sum target/release/jaq-lite
+
+    reproducible
+
+Two of the four assertions exist only to give the other two meaning. The control
+inverts `debug` and `strip` and is required to produce a *different* hash,
+because a checker that cannot fail is not evidence. And the leak scan begins by
+confirming that grep can find the crate name inside the stripped binary: zero
+hits from a scan that was silently reading nothing looks exactly like zero hits
+from a clean binary.
+
+The two build paths differ by 35 characters on purpose. An earlier version of
+this harness used two equal-length directories and its control *matched* when it
+should have differed, which made every green result in that run
+uninterpretable -- a leaked path of identical length shifts nothing in the
+output. Equal-length paths can mask precisely the leak the test exists to find.
+`CARGO_INCREMENTAL=0` is set for the same class of reason: incremental
+compilation is independently nondeterministic, and a difference caused by it is
+indistinguishable from a real leak.
+
+The script resolves its own toolchain and refuses to run without one. Its first
+run had no `cargo` at all: `wsl --exec bash script.sh` is neither a login nor an
+interactive shell, so the profile that puts `~/.cargo/bin` on `PATH` is never
+read. It printed two blank toolchain lines and then failed forty lines later
+inside the first build, which is the wrong place to learn that. It now sources
+rustup's own `env` file when `cargo` is absent, captures both versions into
+variables, asserts they are non-empty, and prints them from there -- a hash
+published beside a blank toolchain line is not a claim anyone can check.
+
+What makes the hash portable rather than merely stable is that there is no
+absolute path in the artifact at all. With `debug = 0` and `strip = "symbols"`
+there is nothing for a path remapping to remap, which is why the verification
+command is a bare `cargo build --release --locked --offline` and not a recipe
+involving environment variables. A published hash that only reproduces when the
+reader exports a long variable correctly is a hash that quietly stops matching.
+
+Windows MSVC is not byte-reproducible and is not claimed to be. A build-unique
+GUID sits in the PE debug directory and survives `/Brepro`, `debug = 0` and
+`strip = "symbols"`. The claim is ELF, stated as such rather than left for
+someone to discover.
