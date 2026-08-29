@@ -28,7 +28,7 @@ that refuses to flip an entry it cannot evidence. An entry that still says
 3. **Normally:** `rand`. **Instead:** SplitMix64 in fourteen lines.
    Deterministic by construction, so a property-test failure replays exactly
    from its seed instead of being irreproducible.
-   *Where:* `tests/roundtrip_fuzz.rs` Â· *Status:* planned
+   *Where:* `tests/roundtrip_fuzz.rs` · *Status:* planned
 
 4. **Normally:** `proptest` or `quickcheck`. **Instead:** a hand-written value
    generator driven by the SplitMix64 above.
@@ -36,7 +36,7 @@ that refuses to flip an entry it cannot evidence. An entry that still says
    minimised by hand and the minimised input is recorded in the test. An
    automatic shrinker was scoped and deliberately dropped for time rather than
    half-built.
-   *Where:* `tests/roundtrip_fuzz.rs`, `tests/mutation_fuzz.rs` Â· *Status:* planned
+   *Where:* `tests/roundtrip_fuzz.rs`, `tests/mutation_fuzz.rs` · *Status:* planned
 
 5. **Normally:** `thiserror` or `anyhow`. **Instead:** `#[derive(Debug)]`, a
    manual `Display` impl, and `impl std::error::Error`.
@@ -64,7 +64,7 @@ that refuses to flip an entry it cannot evidence. An entry that still says
    `i64::MIN`. Note for anyone following along: `NumBuffer` is not re-exported
    through `std::fmt`, so the import must be `core::fmt::NumBuffer` or the
    compiler answers with E0432. This is the nominated Package Killer.
-   *Where:* `src/value.rs`, `src/serializer.rs` Â· *Status:* planned
+   *Where:* `src/value.rs`, `src/serializer.rs` · *Status:* planned
 
 8. **Normally:** `memchr`. **Instead:** plain byte-slice scanning over a
    string that has already been validated as UTF-8.
@@ -86,14 +86,14 @@ that refuses to flip an entry it cannot evidence. An entry that still says
     query parser.
     Line, column, the source line, a caret under the offending byte, and a
     reason. That is the whole feature those crates are usually pulled in for.
-    *Where:* `src/diag.rs` Â· *Status:* planned
+    *Where:* `src/diag.rs` · *Status:* planned
 
 11. **Normally:** `criterion`. **Instead:** a single `std::time::Instant`
     measurement around a fixed workload.
     Honest about scope: there are no percentiles, no outlier rejection and no
     statistical modelling. A percentile harness was planned and dropped, so
     the README quotes one measured figure rather than implying a distribution.
-    *Where:* recorded in `README.md` and `CLAIMS.md` Â· *Status:* planned
+    *Where:* recorded in `README.md` and `CLAIMS.md` · *Status:* planned
 
 12. **Normally:** `insta`. **Instead:** a recorded file, compared on every run,
     with an environment variable that rewrites it.
@@ -115,7 +115,7 @@ that refuses to flip an entry it cannot evidence. An entry that still says
     the first differing byte offset with the surrounding context.
     For byte-exact round-trip failures, the offset of the first difference is
     more useful than a coloured diff of two long lines.
-    *Where:* `tests/roundtrip_fuzz.rs` Â· *Status:* planned
+    *Where:* `tests/roundtrip_fuzz.rs` · *Status:* planned
 
 15. **Normally:** `jq` itself, invoked as an external binary. **Instead:** an
     in-process query engine, so the tool shells out to nothing.
@@ -133,7 +133,7 @@ that refuses to flip an entry it cannot evidence. An entry that still says
     whitespace: Unicode `White_Space` is a much larger set than the four bytes
     RFC 8259 permits, and six fixtures in the corpus exist to catch exactly
     that mistake.
-    *Where:* `src/diag.rs`, `src/lexer.rs` Â· *Status:* planned
+    *Where:* `src/diag.rs`, `src/lexer.rs` · *Status:* planned
 
 17. **Normally:** `owo-colors` or `colored` for ANSI output, plus
     `is-terminal` or `atty` to decide whether to emit it. **Instead:** a short
@@ -145,7 +145,7 @@ that refuses to flip an entry it cannot evidence. An entry that still says
     reach for a crate or guess, colour is opt-in and the limitation is
     documented. Piped output contains no escape bytes at all, which is
     verified by a test.
-    *Where:* `src/diag.rs`, `src/main.rs` Â· *Status:* planned
+    *Where:* `src/diag.rs`, `src/main.rs` · *Status:* planned
 
 ---
 
