@@ -914,10 +914,10 @@ byte -- and that is a collapse of an order of magnitude, not of a fifth. A floor
 set tight enough to catch twenty per cent of drift cannot tell drift from weather.
 
 The window grew from 300 ms to 500 ms in the same commit, and that is not a fix. At
-roughly 46 ms for a parse of this document, 300 ms bought seven samples and 500
-buys eleven; averaging over more of the noise narrows the spread a little and does
-not turn a single figure into a distribution. Only percentiles would do that, and
-percentiles are the thing `criterion` was dropped without.
+roughly 43 ms for a parse of this document, 300 ms bought seven samples and 500
+bought twelve; averaging over more of the noise narrows the spread a little and
+does not turn a single figure into a distribution. Only percentiles would do that,
+and percentiles are the thing `criterion` was dropped without.
 
 What is deliberately not done is the change that would improve the number most.
 Reporting the fastest round instead of the mean over the window would cut the
@@ -934,3 +934,61 @@ code: entry 7 of `STDLIB.md` described a number formatter nobody had written, ro
 figure that would not repeat. The first two were found by reading. The third was
 found by running the same command twice, which is the cheapest audit available here
 and the one that had been missing.
+
+## A table that is also the specification, and a match the compiler checks
+
+`tests/query.rs` is forty rows of filter, input and outcome, plus one row whose
+filter is a hundred and thirty-one characters of parentheses and is therefore
+built rather than written out. It is the first test here that reads the query
+language from outside the crate, and it sits next to twenty-one unit tests in
+`src/query.rs` that already cover the same language. That needs justifying,
+because a test which restates another test is a cost with nothing on the other
+side of it.
+
+There are three things the unit tests cannot do. They cannot be read as a
+specification: anyone who wants to know what `.a?` does has to reconstruct the
+rule from assertions spread over two hundred lines, whereas a table can be read
+straight down and is checked on every run, so it cannot drift the way a prose
+specification drifts. They cannot see the seam: they compare against a
+`Vec<Value>` and a caller gets text, so nothing until now asserted that a value
+this tool emits is a value this tool can read back. Both halves were tested and
+the join between them was not; twenty-eight values now make that trip through
+`to_string` and `parse` on every run, compared with `Value::identical` rather
+than `==` for the reason `tests/roundtrip_fuzz.rs` gives. And they cannot be a
+dependent: `mod tests` inside the crate can reach `MAX_DEPTH`, while this file
+reaches only what is public. The nesting cap is private, so the one way anything
+outside can learn it is to read it back out of
+`FilterErrorKind::DepthLimitExceeded { limit }` -- which is why the number is a
+field on the variant instead of prose inside a message, and the table now proves
+that path carries it.
+
+The coverage check is the part worth taking elsewhere. `compile_tag` and
+`eval_tag` match on the two public error enums with no wildcard arm, so adding a
+way for a filter to fail stops this file compiling until somebody names the new
+variant. That is the compiler doing the job a coverage tool would be installed
+for, at a cost of two matches and no dependency. What it does not do is force the
+new name to be exercised: adding an arm and a name to `EXPECTED_TAGS` in the same
+edit satisfies the assertion with no row behind it. The module comment says so in
+as many words, because a coverage check believed to be complete while it is not is
+worse than one whose edge is written down. Eleven names, eleven exercised: eight
+ways to refuse a program, three ways for a value to refuse a question.
+
+Section 15 predicted a number one paragraph after arguing that predicted numbers
+are the problem. It said 500 ms would buy eleven samples at roughly 46 ms each.
+The run that shipped it bought twelve at 43. The arithmetic was sound and its
+input was a figure from an earlier run, which is exactly the substitution that put
+row 18 of `CLAIMS.md` wrong in the first place. Those two lines now say what was
+measured. That is the fourth defect in four commits and the fourth in prose about
+code rather than in code, and this one was found by reading the log against the
+output of the run that shipped it.
+
+That same run measured something not written down anywhere yet, because commit 47
+is where the gate started printing the debug figures as well as the release ones.
+Parsing runs at 7.9 MiB/s unoptimized against 26.5 optimized, a factor of 3.4.
+Serializing runs at 12.8 against 197.9, a factor of 15.5. The optimizer therefore
+finds four and a half times more to do in the serializer than in the parser, and a
+plausible reading is that the parse loop is branching on bytes whose order nothing
+can predict, while serialization is a stream of small writes and formats that fold
+into each other once inlining is on. That is a hypothesis and not a measurement:
+nothing here has looked at the generated code. What is measured is the ratio, and
+all four numbers now print on every run of the gate.

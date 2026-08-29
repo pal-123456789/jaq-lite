@@ -1,7 +1,7 @@
 # Standard library substitutions
 
 Every crate this project would ordinarily have reached for, what replaced it,
-and why. Seventeen entries.
+and why. Eighteen entries.
 
 The `Status` line is `planned` until the replacing code exists, and is changed
 to `shipped` only after the code has been found in the source tree by a check
@@ -191,6 +191,22 @@ that refuses to flip an entry it cannot evidence. An entry that still says
     there was nothing to measure -- and with the terminal question asked of
     standard error instead of standard output.
     *Where:* `src/color.rs`, `src/diag.rs`, `src/main.rs` · *Status:* shipped
+
+18. **Normally:** a coverage tool -- `cargo-tarpaulin`, `grcov`, or a nightly
+    build with `-Z instrument-coverage` -- to answer whether the tests reach
+    every case. **Instead:** a `match` over the public error enums with no
+    wildcard arm, plus a committed list of the names its arms return.
+    The question such a tool would be installed here to answer is narrow: has
+    every way this query language can fail been exercised. An exhaustive match
+    answers half of it at compile time, because a new variant stops the test
+    file compiling until somebody names it, and the committed list of names
+    turns the other half -- whether each name has a row behind it -- into an
+    assertion that fails. The two together are not a proof: a name added to
+    the list and to the match in one edit satisfies both with no row behind
+    it, and the file says so where a reader will find it. The point is that
+    for this shape of question the useful nine tenths of a coverage tool is a
+    language feature.
+    *Where:* `tests/query.rs` · *Status:* shipped
 
 ---
 

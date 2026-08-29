@@ -29,12 +29,12 @@ use std::fs;
 use std::path::PathBuf;
 
 /// Entries in `STDLIB.md`, counted by their `Status` field.
-const ENTRIES: usize = 17;
+const ENTRIES: usize = 18;
 
 /// How many entries read `shipped`. A floor in the same sense as the conformance
 /// floors: flipping an entry raises it and nothing may lower it, so a status
 /// quietly going back to `planned` fails here.
-const SHIPPED_FLOOR: usize = 17;
+const SHIPPED_FLOOR: usize = 18;
 
 /// The one file allowed to build a `Number`. This is the substance of entry 7.
 const SYNTHESIS_SITE: &str = "lexer.rs";
