@@ -263,3 +263,41 @@ fn every_failing_document_is_named_not_only_the_first() {
     assert_eq!(lines.len(), 3, "{lines:?}");
     assert_eq!(got.code, Some(5));
 }
+
+#[test]
+fn raw_output_prints_a_string_without_its_quotes() {
+    let result = run(&["-r", ".s"], "{\"s\":\"hi there\"}");
+    assert_eq!(result.stdout, "hi there\n");
+    assert_eq!(result.code, Some(0));
+}
+
+#[test]
+fn raw_output_is_available_under_both_spellings() {
+    let short = run(&["-r", ".s"], "{\"s\":\"x\"}");
+    let long = run(&["--raw-output", ".s"], "{\"s\":\"x\"}");
+    assert_eq!(short.stdout, "x\n");
+    assert_eq!(long.stdout, short.stdout);
+}
+
+#[test]
+fn raw_output_leaves_a_nested_string_quoted() {
+    // The value being printed is the array, so -r does not reach inside it.
+    let result = run(&["-c", "-r", ".n"], "{\"n\":[\"a\",\"b\"]}");
+    assert_eq!(result.stdout, "[\"a\",\"b\"]\n");
+}
+
+#[test]
+fn raw_output_changes_nothing_that_is_not_a_string() {
+    let result = run(&["-c", "-r", "."], "{\"a\":1}");
+    assert_eq!(result.stdout, "{\"a\":1}\n");
+}
+
+#[test]
+fn raw_output_writes_the_value_not_the_source_text() {
+    // A tab written as an escape in the input is a real tab in the value, and
+    // raw output writes the value. Without -r it is escaped again on the way out.
+    let escaped = run(&["-r", ".s"], "{\"s\":\"a\\tb\"}");
+    assert_eq!(escaped.stdout, "a\tb\n");
+    let quoted = run(&["-c", ".s"], "{\"s\":\"a\\tb\"}");
+    assert_eq!(quoted.stdout, "\"a\\tb\"\n");
+}

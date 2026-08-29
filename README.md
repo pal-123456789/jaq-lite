@@ -42,8 +42,10 @@ One command, no flags, no feature selection, no network access after the clone.
 
 ## Usage
 
-Reads standard input, or a file named as the last argument. `-c` compacts the
-output, `--` ends option parsing, `-h` prints usage.
+Reads standard input, or a file named as the last argument; a bare `-` names
+standard input among file arguments. `-c` compacts the output, `-r` prints a
+top-level string as its contents, `-h` prints usage, `-V` prints the version,
+and `--` stops option parsing.
 
     $ jaq-lite . users.json
     {
@@ -64,6 +66,10 @@ output, `--` ends option parsing, `-h` prints usage.
     "ada"
     "linus"
 
+    $ jaq-lite -r '.users[] | .name' users.json
+    ada
+    linus
+
     $ jaq-lite -c '.count, .users[0].admin' users.json
     2
     true
@@ -72,6 +78,11 @@ output, `--` ends option parsing, `-h` prints usage.
     1
     2
     3
+
+`-r` applies to the value being printed, not to strings inside it: the second and
+third commands above run the same filter and differ only in the quoting of the
+result, while a string nested in an array stays quoted because the array is what
+is printed.
 
 Exit codes follow jq: 2 for a bad flag or a file that will not open, 3 for a
 filter that does not compile, 5 for input that is not JSON or a filter that

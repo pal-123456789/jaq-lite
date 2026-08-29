@@ -50,6 +50,7 @@ standard input.
 
 Options:
   -c, --compact-output   Print with no newlines or indentation.
+  -r, --raw-output       Print a top-level string as its contents, not as JSON.
   -h, --help             Print this help and exit.
   -V, --version          Print the version and exit.
   --                     Stop reading options; later arguments are positional.
@@ -88,6 +89,7 @@ struct Options {
     filter: String,
     files: Vec<String>,
     style: Style,
+    raw: bool,
 }
 
 fn main() -> ExitCode {
@@ -123,16 +125,30 @@ fn run() -> Result<(), Failure> {
 
     if options.files.is_empty() {
         let bytes = read_stdin()?;
-        emit(&mut out, &filter, &bytes, "<stdin>", options.style)?;
+        emit(
+            &mut out,
+            &filter,
+            &bytes,
+            "<stdin>",
+            options.style,
+            options.raw,
+        )?;
     } else {
         for path in &options.files {
             if path == "-" {
                 let bytes = read_stdin()?;
-                emit(&mut out, &filter, &bytes, "<stdin>", options.style)?;
+                emit(
+                    &mut out,
+                    &filter,
+                    &bytes,
+                    "<stdin>",
+                    options.style,
+                    options.raw,
+                )?;
             } else {
                 let bytes = std::fs::read(path)
                     .map_err(|error| Failure::usage(format!("{path}: {error}")))?;
-                emit(&mut out, &filter, &bytes, path, options.style)?;
+                emit(&mut out, &filter, &bytes, path, options.style, options.raw)?;
             }
         }
     }
@@ -146,6 +162,7 @@ fn parse_args(args: Vec<String>) -> Result<Option<Options>, Failure> {
     let mut filter: Option<String> = None;
     let mut files: Vec<String> = Vec::new();
     let mut style = Style::Pretty;
+    let mut raw = false;
     let mut options_ended = false;
 
     for arg in args {
@@ -163,6 +180,8 @@ fn parse_args(args: Vec<String>) -> Result<Option<Options>, Failure> {
                 return Ok(None);
             } else if arg == "-c" || arg == "--compact-output" {
                 style = Style::Compact;
+            } else if arg == "-r" || arg == "--raw-output" {
+                raw = true;
             } else {
                 return Err(Failure::usage(format!("unknown option `{arg}`")));
             }
@@ -178,6 +197,7 @@ fn parse_args(args: Vec<String>) -> Result<Option<Options>, Failure> {
         filter,
         files,
         style,
+        raw,
     }))
 }
 
@@ -209,6 +229,7 @@ fn emit<W: Write>(
     bytes: &[u8],
     origin: &str,
     style: Style,
+    raw: bool,
 ) -> Result<(), Failure> {
     let mut failed = false;
     for document in jaq_lite::parse_stream(bytes) {
@@ -228,7 +249,19 @@ fn emit<W: Write>(
         match filter.run(&value) {
             Ok(outputs) => {
                 for output in &outputs {
-                    jaq_lite::write(out, output, style).map_err(|error| write_error(&error))?;
+                    // `-r` prints a top-level string as its contents. A string
+                    // inside an array or an object stays quoted, because the
+                    // value being printed is the container. That is jq's rule.
+                    match output {
+                        jaq_lite::Value::String(text) if raw => {
+                            out.write_all(text.as_bytes())
+                                .map_err(|error| write_error(&error))?;
+                        }
+                        _ => {
+                            jaq_lite::write(out, output, style)
+                                .map_err(|error| write_error(&error))?;
+                        }
+                    }
                     out.write_all(b"\n").map_err(|error| write_error(&error))?;
                 }
             }
