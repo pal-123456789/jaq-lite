@@ -1,4 +1,4 @@
-//! Byte-level scanning: the cursor, the three literals, and numbers.
+//! Byte-level scanning: the cursor, the three literals, numbers and strings.
 //!
 //! Structure and recursion belong to `parser`; everything that reads bytes one
 //! at a time lives here. The split keeps the only recursive code in the crate
@@ -33,6 +33,11 @@ impl<'a> Cursor<'a> {
         self.input.get(self.at).copied()
     }
 
+    /// Consume one byte that the caller has already inspected with `peek`.
+    pub(crate) fn advance(&mut self) {
+        self.at += 1;
+    }
+
     /// Advance past the four bytes RFC 8259 permits between tokens.
     ///
     /// `char::is_whitespace` is deliberately not used: Unicode's White_Space
@@ -47,6 +52,12 @@ impl<'a> Cursor<'a> {
     /// An error at the current position.
     pub(crate) fn error(&self, kind: ErrorKind) -> ParseError {
         ParseError::new(kind, self.input, self.at)
+    }
+
+    /// An error at a position the caller remembered, used when the interesting
+    /// place is where a construct started rather than where scanning stopped.
+    pub(crate) fn error_at(&self, kind: ErrorKind, offset: usize) -> ParseError {
+        ParseError::new(kind, self.input, offset)
     }
 
     /// The error for a byte that cannot appear where the cursor is standing,
@@ -145,6 +156,130 @@ impl<'a> Cursor<'a> {
             self.at += 1;
         }
     }
+
+    /// Scan a string, decoding escapes.
+    ///
+    /// Ordinary bytes are copied in runs rather than one character at a time.
+    /// That is safe without any UTF-8 bookkeeping because the three bytes that
+    /// end a run -- `"`, `\` and anything below `0x20` -- are all ASCII, and a
+    /// UTF-8 continuation byte is always `0x80` or above. So a run boundary can
+    /// never fall inside a multi-byte character, which is the same argument that
+    /// makes byte scanning a safe replacement for `memchr` here.
+    pub(crate) fn scan_string(&mut self) -> Result<String, ParseError> {
+        self.at += 1; // the opening quote the caller peeked
+        let mut out = String::new();
+        loop {
+            let run = self.at;
+            while let Some(byte) = self.peek() {
+                if byte == b'"' || byte == b'\\' || byte < 0x20 {
+                    break;
+                }
+                self.at += 1;
+            }
+            if self.at > run {
+                let text = core::str::from_utf8(&self.input[run..self.at])
+                    .expect("run boundaries are ASCII, so this is a character boundary");
+                out.push_str(text);
+            }
+            match self.peek() {
+                Some(b'"') => {
+                    self.at += 1;
+                    return Ok(out);
+                }
+                Some(b'\\') => {
+                    self.at += 1;
+                    self.scan_escape(&mut out)?;
+                }
+                // RFC 8259 requires every byte below 0x20 to be escaped. Note
+                // that 0x7F is not in that range and is allowed raw, which is a
+                // divergence from what many parsers do and is deliberate.
+                Some(byte) => return Err(self.error(ErrorKind::ControlCharacterInString { byte })),
+                None => return Err(self.error(ErrorKind::UnexpectedEof)),
+            }
+        }
+    }
+
+    fn scan_escape(&mut self, out: &mut String) -> Result<(), ParseError> {
+        let Some(byte) = self.peek() else {
+            return Err(self.error(ErrorKind::UnexpectedEof));
+        };
+        let decoded = match byte {
+            b'"' => '"',
+            b'\\' => '\\',
+            b'/' => '/',
+            b'b' => '\u{8}',
+            b'f' => '\u{c}',
+            b'n' => '\n',
+            b'r' => '\r',
+            b't' => '\t',
+            b'u' => {
+                self.at += 1;
+                return self.scan_unicode_escape(out);
+            }
+            // Reported before advancing, so the caret lands on the offending
+            // byte rather than after it.
+            _ => return Err(self.error(ErrorKind::InvalidEscape { byte })),
+        };
+        self.at += 1;
+        out.push(decoded);
+        Ok(())
+    }
+
+    /// Decode a `\uXXXX` escape, and the surrogate pair it may be half of.
+    ///
+    /// Surrogates exist only as a UTF-16 encoding artefact and are not
+    /// characters. Rust's `String` cannot hold one, so an unpaired surrogate is
+    /// rejected rather than replaced: substituting U+FFFD would silently change
+    /// the document, and this parser reports rather than repairs.
+    fn scan_unicode_escape(&mut self, out: &mut String) -> Result<(), ParseError> {
+        let escape_start = self.at - 2;
+        let first = self.scan_hex4()?;
+
+        let decoded = if (0xD800..=0xDBFF).contains(&first) {
+            if !self.input[self.at..].starts_with(b"\\u") {
+                return Err(
+                    self.error_at(ErrorKind::LoneSurrogate { code_unit: first }, escape_start)
+                );
+            }
+            self.at += 2;
+            let second = self.scan_hex4()?;
+            if !(0xDC00..=0xDFFF).contains(&second) {
+                return Err(
+                    self.error_at(ErrorKind::LoneSurrogate { code_unit: first }, escape_start)
+                );
+            }
+            let combined =
+                0x1_0000 + ((u32::from(first) - 0xD800) << 10) + (u32::from(second) - 0xDC00);
+            char::from_u32(combined)
+                .ok_or_else(|| self.error_at(ErrorKind::InvalidUnicodeEscape, escape_start))?
+        } else if (0xDC00..=0xDFFF).contains(&first) {
+            return Err(self.error_at(ErrorKind::LoneSurrogate { code_unit: first }, escape_start));
+        } else {
+            char::from_u32(u32::from(first))
+                .ok_or_else(|| self.error_at(ErrorKind::InvalidUnicodeEscape, escape_start))?
+        };
+
+        out.push(decoded);
+        Ok(())
+    }
+
+    fn scan_hex4(&mut self) -> Result<u16, ParseError> {
+        let mut value: u16 = 0;
+        for _ in 0..4 {
+            let Some(byte) = self.peek() else {
+                return Err(self.error(ErrorKind::UnexpectedEof));
+            };
+            let digit = match byte {
+                b'0'..=b'9' => byte - b'0',
+                b'a'..=b'f' => byte - b'a' + 10,
+                b'A'..=b'F' => byte - b'A' + 10,
+                _ => return Err(self.error(ErrorKind::InvalidUnicodeEscape)),
+            };
+            value = value * 16 + u16::from(digit);
+            self.at += 1;
+        }
+        Ok(value)
+    }
 }
 
 #[cfg(test)]
@@ -155,6 +290,19 @@ mod tests {
     fn number(src: &str) -> Result<Number, ParseError> {
         let mut cursor = Cursor::new(src.as_bytes());
         cursor.scan_number()
+    }
+
+    fn string_of(src: &str) -> String {
+        match parse(src.as_bytes()).expect(src) {
+            Value::String(text) => text,
+            other => panic!("expected a string, got {other:?}"),
+        }
+    }
+
+    fn error_kind(src: &str) -> ErrorKind {
+        parse(src.as_bytes())
+            .expect_err("should not have parsed")
+            .kind()
     }
 
     #[test]
@@ -198,5 +346,82 @@ mod tests {
         let err = parse(b"1,2").expect_err("two values");
         assert_eq!(err.kind(), ErrorKind::TrailingData);
         assert_eq!(err.column(), 2, "the comma should not have been consumed");
+    }
+
+    #[test]
+    fn every_escape_the_rfc_defines_is_decoded() {
+        assert_eq!(string_of(r#""\"\\\/\b\f\n\r\t""#), "\"\\/\u{8}\u{c}\n\r\t");
+    }
+
+    #[test]
+    fn unicode_escapes_and_surrogate_pairs_are_decoded() {
+        assert_eq!(string_of(r#""\u0041\u00e9\u20ac""#), "A\u{e9}\u{20ac}");
+        // A pair, which is the only legal way to write a character above the BMP.
+        assert_eq!(string_of(r#""\ud83d\ude00""#), "\u{1f600}");
+    }
+
+    #[test]
+    fn unpaired_surrogates_are_rejected_not_replaced() {
+        assert_eq!(
+            error_kind(r#""\ud800""#),
+            ErrorKind::LoneSurrogate { code_unit: 0xd800 }
+        );
+        assert_eq!(
+            error_kind(r#""\udc00""#),
+            ErrorKind::LoneSurrogate { code_unit: 0xdc00 }
+        );
+        // A high surrogate followed by an escape that is not a low surrogate.
+        assert_eq!(
+            error_kind(r#""\ud800\u0041""#),
+            ErrorKind::LoneSurrogate { code_unit: 0xd800 }
+        );
+    }
+
+    #[test]
+    fn a_lone_surrogate_is_reported_at_the_start_of_its_escape() {
+        let err = parse(r#""ab\ud800""#.as_bytes()).expect_err("lone surrogate");
+        assert_eq!(err.column(), 4, "the caret should sit on the backslash");
+    }
+
+    #[test]
+    fn bad_escapes_and_bad_hex_are_distinguished() {
+        assert_eq!(
+            error_kind(r#""\x""#),
+            ErrorKind::InvalidEscape { byte: b'x' }
+        );
+        assert_eq!(
+            error_kind(r#""\U0041""#),
+            ErrorKind::InvalidEscape { byte: b'U' }
+        );
+        assert_eq!(error_kind(r#""\uqqqq""#), ErrorKind::InvalidUnicodeEscape);
+        assert_eq!(error_kind(r#""\u00A""#), ErrorKind::InvalidUnicodeEscape);
+    }
+
+    #[test]
+    fn raw_control_bytes_must_be_escaped_but_delete_need_not_be() {
+        assert_eq!(
+            error_kind("\"a\tb\""),
+            ErrorKind::ControlCharacterInString { byte: b'\t' }
+        );
+        assert_eq!(
+            error_kind("\"a\nb\""),
+            ErrorKind::ControlCharacterInString { byte: b'\n' }
+        );
+        // 0x7F is not below 0x20, so the RFC does not require escaping it.
+        assert_eq!(string_of("\"a\u{7f}b\""), "a\u{7f}b");
+    }
+
+    #[test]
+    fn multibyte_characters_pass_through_untouched() {
+        assert_eq!(
+            string_of("\"h\u{e9}llo \u{1f600}\""),
+            "h\u{e9}llo \u{1f600}"
+        );
+    }
+
+    #[test]
+    fn an_unterminated_string_runs_out_of_input() {
+        assert_eq!(error_kind("\"abc"), ErrorKind::UnexpectedEof);
+        assert_eq!(error_kind("\"abc\\"), ErrorKind::UnexpectedEof);
     }
 }
