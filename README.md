@@ -107,23 +107,29 @@ failure followed by a success exits 0 under jq, which hides it from a script
 running under `set -e`:
 
     $ printf '1 {"a":2}' | jq -c .a
+    jq: error (at <stdin>:0): Cannot index number with string "a"
     2
-    jq: error (at <stdin>:1): Cannot index number with string "a"
     [exit 0]
 
     $ printf '1 {"a":2}' | jaq-lite -c .a
-    2
     jaq-lite: <stdin>: Cannot index number with string "a"
+    2
     [exit 5]
+
+Both transcripts print the failure before the document that followed it, because
+output is flushed before anything is written to standard error. That ordering is
+asserted where it is captured, so it cannot quietly stop being true.
 
 Where the input is malformed, the reported position is the byte that is wrong
 rather than the end of the token that contains it:
 
-    $ printf '{1:2}' | jq .
+    $ printf '{1:2}' | jq -c .
     jq: parse error: Object keys must be strings at line 1, column 3
+    [exit 5]
 
-    $ printf '{1:2}' | jaq-lite .
+    $ printf '{1:2}' | jaq-lite -c .
     jaq-lite: <stdin>: line 1, column 2: expected a string as the object key
+    [exit 5]
 
 jq is also more permissive than RFC 8259 allows: it accepts `inf`, `NaN`, `+1`,
 `.5`, `5.`, `01`, `00`, `1.` and `0.` at exit 0. This project rejects all nine,
