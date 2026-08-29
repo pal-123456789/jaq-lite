@@ -992,3 +992,72 @@ can predict, while serialization is a stream of small writes and formats that fo
 into each other once inlining is on. That is a hypothesis and not a measurement:
 nothing here has looked at the generated code. What is measured is the ratio, and
 all four numbers now print on every run of the gate.
+
+## The file that pointed at another file
+
+`README.md` carried a section reading "## Design notes" followed by one sentence:
+"Filled in as the modules land." Every module has landed. It was written early as
+a promise and had been false for most of the project, in the document a reader
+opens first and the one a scored artifact points back at.
+
+Filling it turned up something worse than the stub. `src/value.rs` opens by
+explaining why an object is a `Vec` of pairs instead of a map, and closes that
+explanation with "The cost is an O(n) key lookup, which is stated in the README
+rather than hidden." The README did not state it: `grep -n "O(n)" README.md`
+returned nothing. `grep -c 64 README.md` returned zero too, which is the other
+half of the same defect -- the filter language arrived with a nesting cap of its
+own, and the limits section still read "The nesting limit is 128", singular,
+naming the parser's cap while a second one had been enforced for days.
+
+That is the fifth prose defect in this project and the first that is a claim about
+another file. It is also the first one a test can hold down. `tests/claims.rs` now
+finds `const MAX_DEPTH: u32 = ` in `src/parser.rs` and in `src/query.rs`, takes
+the digits after it, and fails unless the README names both numbers; then it
+checks that `value.rs` still points at the README and that the README now says
+`O(n)`.
+
+The first draft of that test accepted a digit anywhere in the file, and the design
+notes it was written alongside contain the word `f64`. Two characters of an
+unrelated type name satisfied the check for a filter cap of 64, so the test would
+have passed a README that never mentioned the limit at all. It now requires the
+digits to stand alone, with neither an alphanumeric character nor an underscore on
+either side. That draft was caught by replaying every assertion against the edited
+files before the commit ran, which is the only reason it is a paragraph here
+instead of a sixth ledger entry later.
+
+The gate that ran this commit made the same mistake once more, an hour later and
+one layer out. Its final assertion was that a malformed document exits 2,
+because that is what the author of the assertion assumed. It exits 5:
+`src/main.rs` has said `const EXIT_ERROR: u8 = 5;` since the CLI landed, with a
+comment recording that the number was measured from jq rather than chosen, and
+the README prints `[exit 5]` in six places. The offline replay could not catch
+it, because the stub binary it ran against was written from the same assumption
+as the check: the two agreed with each other and neither agreed with the code.
+A fake that encodes your expectation tests your expectation.
+
+The check is still weak in one direction and says so in its own doc comment: no
+test can tell whether the sentence around a number is true. What it makes
+impossible is the failure that actually happened here, which is a number that
+exists in exactly one place and that place being prose.
+
+Five is enough to name the pattern. Every one of the five was prose about code and
+none was in code; three of them were true when they were written and went stale
+underneath a change somewhere else. Prose has no build. The only mechanisms that
+have caught any of them are a rule that governs a field, which caught the `Status`
+audit; a figure substituted out of the run that measured it, which caught the
+throughput row; and a test that reads the source and fails on the document, which
+is this one and the `Number::new` call-site check. Reading caught the other two,
+and reading does not scale to a deadline.
+
+One more thing turned up while the file was open: `README.md` had never ended with
+a newline, so git had been printing `\ No newline at end of file` under every diff
+that touched it since the first commit. It ends with one now.
+
+The design notes themselves are now the section they should always have been:
+where the module boundaries fall and why a filter gets its own scanner, why a
+number keeps the bytes it arrived in, why an object is a list of pairs, why a
+position is a byte offset with the line computed on demand, why a depth cap is a
+counter and never the stack, and why every measured number in this project is
+asserted as a floor rather than as a figure. None of it is new work. All of it was
+decided in code weeks of commits ago and lived only in module comments, which is
+one file deeper than the reader who wants to know how this thing is built.

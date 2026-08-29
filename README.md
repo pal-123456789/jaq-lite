@@ -252,7 +252,53 @@ those would measure the cost of calling a function 95 times.
 
 ## Design notes
 
-Filled in as the modules land.
+The modules split along the problem rather than along a crate layout. `lexer.rs`
+turns bytes into tokens and is the only place that validates UTF-8 or resolves an
+escape; `parser.rs` turns tokens into a `Value` and is the only place that counts
+document depth; `serializer.rs` turns a `Value` back into bytes and is the only
+place that knows what two-space indentation looks like. `query.rs` is a second
+front end over the same value model, with its own scanner, its own recursive
+descent and its own depth counter, because a filter is a different language from a
+document and one tokeniser pretending to be two would have to know which it was
+being. `diag.rs` draws the caret snippet for both of them, `color.rs` decides
+whether anything is painted, `error.rs` and `value.rs` hold the two types every
+other module names, `lib.rs` is the public surface -- `parse`, `parse_stream`,
+`write`, `to_string`, `Filter` -- and `main.rs` is argument parsing and exit codes
+and nothing else.
+
+**A number keeps the bytes it was written with.** `Number` stores the original
+text beside an `f64`, and the serializer writes the text back, which is why the
+compatibility table above shows `1e2` surviving as `1e2`. Reformatting is where
+JSON tools quietly lose information, and it is also the decision that keeps float
+printing -- a genuinely hard algorithm, and one of the larger things a
+dependency would have been carrying -- out of a project that is not allowed to
+depend on one.
+
+**An object is a `Vec` of pairs, not a map.** Insertion order is what jq
+preserves and what makes a byte-exact round trip possible: a `HashMap` would have
+made the round-trip property untestable and a `BTreeMap` would have sorted the
+keys. The cost is a linear key lookup, stated among the limits below rather than
+hidden.
+
+**A position is a byte offset; line and column are computed from it.**
+`ParseError` and `FilterError` each carry an offset and a kind, and count lines
+only when asked, so nothing pays for a line table it never prints. The kind is a
+separate public enum from the message, which is what lets `main.rs` choose an exit
+code and `tests/query.rs` name eleven distinct failures without matching on
+English.
+
+**A depth cap is an explicit counter, never the stack.** Both recursive descents
+carry a `u32` and refuse before recursing, so deeply nested input is a diagnostic
+rather than a stack overflow. Both caps are private, and both are readable back
+out of the error variant that reports them: the limit is a field rather than prose
+inside a message, which is the only way a dependent can learn a number the crate
+does not export.
+
+**Anything measured is asserted as a floor, never as a figure.** The throughput
+test, the conformance counts and the substitution ledger share one idiom: read a
+committed number, take the maximum of it and whatever the environment asks for,
+and fail below the result. A floor can be raised by a passing run and lowered by
+nothing, which is the opposite of a number typed into a document.
 
 ## Honest limits
 
@@ -265,9 +311,34 @@ the same line. Correcting for that needs the Unicode East Asian Width table,
 which is the larger half of what a diagnostics crate carries, and the line and
 column in the message above the snippet are right either way.
 
-The nesting limit is 128 and is not configurable: there is no `--max-depth`. The
-limit is what turns deeply nested input into a diagnostic instead of a stack
-overflow, and 128 is far past anything written by hand.
+There are two nesting limits, neither of them configurable, and there is no
+`--max-depth` for either: 128 levels for a document, 64 for the parentheses
+in a filter. A limit is what turns deeply nested input into a diagnostic rather
+than a stack overflow, and both numbers are far past anything written by hand.
+Both are private constants, so this section is the only place a reader can see
+either number; `tests/claims.rs` reads them back out of the source and fails if
+the numbers here stop matching.
+
+An object is a list of pairs, so looking up a key is linear -- O(n) in the number
+of keys in that object. For what this tool is pointed at, which is configuration
+files, API responses and log lines, that beats hashing outright; for an object
+with thousands of keys it does not, and nothing here switches representation to
+find out. The trade is the one in the design notes above: insertion order and a
+byte-exact round trip are worth more here than a constant-time lookup.
+
+The filter language has no functions. `.a`, `."a b"`, `.[0]`, `.[-1]`, `.[]`,
+`.["a b"]`, `|`, `,`, `?` and parentheses are the whole grammar. `length`, `map`,
+`select` and every other builtin is refused at compile time with its own name in
+the message rather than silently ignored, because a tool that accepted `length`
+and returned nothing would be worse than one that will not compile it. What is
+here is the path-and-stream core that most jq one-liners are made of.
+
+`JQ_COLORS` is not read. Whether anything is painted follows `-M`, then `-C`, then
+`NO_COLOR`, then whether the stream is a terminal, which is the precedence jq
+1.8.1 was measured to use; but the palette those rules switch on is fixed. jq's
+variable takes a colon-separated list of SGR parameter strings, and reading it
+would mean validating a small language whose entire effect is to change six
+colours.
 
 ## Standard library substitutions
 

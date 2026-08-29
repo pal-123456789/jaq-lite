@@ -23,13 +23,14 @@ row says otherwise.
 | 11 | Every malformed document is rejected | the same run | `n_  must reject  : 188/188` |
 | 12 | Each implementation-defined case has a recorded decision | `cargo test --test conformance` | `tests/i_decisions.tsv`, 35 rows, 10 accept, 25 reject |
 | 13 | The release build needs no network and no lockfile rewrite | `cargo build --release --offline --locked` | succeeds; captured in `deps-proof.txt` |
-| 14 | The suite is green | `cargo test` | 157 passing, 0 failing, summed across every target |
+| 14 | The suite is green | `cargo test` | 158 passing, 0 failing, summed across every target |
 | 15 | The jq comparison is against a real jq | `wsl --exec jq --version` | `jq-1.8.1` |
 | 16 | jq re-renders numbers where this project preserves them | `jq -c . <<< 1e2` | `1E+2` against `1e2` here |
 | 17 | A stream with one failing document exits non-zero here | `jaq-lite -c .a <<< '1 {"a":2}'` | exit 5, where jq exits 0 |
 | 18 | Parsing and serializing clear the floor a release build asserts | `cargo test --release --test throughput -- --nocapture --test-threads=1` | 3 passing, floor 5 MiB/s, one run: parse 26.5, serialize 197.9 |
 | 19 | A document over a megabyte survives parse and to_string identically | `cargo test --test throughput` | 1196671 bytes in, the reparsed value identical |
 | 20 | The query language behaves as its table says, and the table covers every way a filter can fail | `cargo test --test query -- --nocapture --test-threads=1` | 5 passing, 40 rows written out and 1 built, 11 named failures, 28 values round tripped |
+| 21 | The README names both nesting caps the code enforces, and the lookup cost `src/value.rs` says it states | `cargo test --test claims -- --nocapture --test-threads=1` | caps 128 and 64 named, lookup cost stated |
 
 Row 9 was corrected on 2026-08-29. It recorded a binary that printed its own
 version, which stopped being true the moment the CLI learned to take arguments.

@@ -206,3 +206,73 @@ fn every_file_a_stdlib_entry_names_exists() {
         "{named} paths named across {ENTRIES} entries"
     );
 }
+
+/// Every nesting cap the code enforces, named in the README, and the lookup cost
+/// `src/value.rs` says the README states.
+///
+/// Both caps are private constants in two different modules, so the README is the
+/// only place a reader can see either number -- which is exactly the arrangement
+/// that lets a document drift away from the code. This reads them out of the
+/// source instead of trusting the prose.
+///
+/// The digits have to stand on their own. An earlier draft of this test accepted
+/// any occurrence, and `f64` in a sentence about how numbers are stored satisfied
+/// it: the test passed while saying nothing about the filter nesting cap at all.
+///
+/// It also checks one cross-file claim. `src/value.rs` tells the reader that its
+/// linear key lookup is "stated in the README rather than hidden", which is an
+/// assertion about the contents of a different file -- the kind of claim nothing
+/// here used to check.
+///
+/// What it still cannot check is whether the sentence around a number says
+/// anything true about it.
+#[test]
+fn the_readme_states_every_limit_the_code_enforces() {
+    let readme = read("README.md");
+    let attached = |c: char| c.is_ascii_alphanumeric() || c == '_';
+    let mut caps = Vec::new();
+    for module in ["src/parser.rs", "src/query.rs"] {
+        let source = read(module);
+        let marker = "const MAX_DEPTH: u32 = ";
+        let start = source
+            .find(marker)
+            .unwrap_or_else(|| panic!("{module} no longer declares a nesting cap"))
+            + marker.len();
+        let digits: String = source[start..]
+            .chars()
+            .take_while(|c| c.is_ascii_digit())
+            .collect();
+        assert!(
+            !digits.is_empty(),
+            "{module}'s cap is not written as a decimal literal"
+        );
+        let named = readme.match_indices(digits.as_str()).any(|(at, found)| {
+            !readme[..at].chars().next_back().is_some_and(attached)
+                && !readme[at + found.len()..]
+                    .chars()
+                    .next()
+                    .is_some_and(attached)
+        });
+        assert!(
+            named,
+            "the README does not name the nesting cap of {digits} that {module} enforces"
+        );
+        caps.push(digits);
+    }
+    assert_ne!(
+        caps[0], caps[1],
+        "the two caps are no longer distinct numbers"
+    );
+    assert!(
+        read("src/value.rs").contains("stated in the README"),
+        "value.rs no longer points at the README, so half of this check is stale"
+    );
+    assert!(
+        readme.contains("O(n)"),
+        "value.rs sends the reader to the README for the lookup cost, and the README is silent"
+    );
+    println!(
+        "README LIMITS: caps {} and {} named, lookup cost stated",
+        caps[0], caps[1]
+    );
+}
