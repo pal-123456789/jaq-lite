@@ -28,49 +28,34 @@ pub mod value;
 pub use error::{ErrorKind, ParseError};
 pub use value::{Number, Value};
 
-/// Parse a JSON document from raw bytes.
+mod lexer;
+mod parser;
+
+/// Parse a JSON document.
 ///
-/// The input is bytes rather than `&str` on purpose. RFC 8259 defines a JSON
-/// text as a stream of octets, and an ill-formed encoding is a parse error this
-/// crate wants to report itself, with an offset, rather than have the caller
-/// reject beforehand with no position information.
+/// The input is bytes rather than `&str` so that a file which is not valid
+/// UTF-8 gets a diagnostic pointing at the offending byte, instead of failing
+/// before parsing begins.
 ///
 /// # Errors
 ///
-/// Returns a [`ParseError`] describing the first violation found, with the byte
-/// offset it was found at.
+/// Returns the first problem found, with the byte offset where it was found.
+/// Parsing stops there; this is not an error-recovering parser.
 pub fn parse(input: &[u8]) -> Result<Value, ParseError> {
-    let text = std::str::from_utf8(input).map_err(|e| {
-        ParseError::new(
+    // Validating UTF-8 once, here, is what allows every scanner downstream to
+    // treat a byte at or above 0x80 as part of a well-formed sequence without
+    // re-checking it.
+    if let Err(e) = core::str::from_utf8(input) {
+        return Err(ParseError::new(
             ErrorKind::InvalidUtf8 {
                 valid_up_to: e.valid_up_to(),
             },
             input,
             e.valid_up_to(),
-        )
-    })?;
-
-    // RFC 8259 permits exactly four whitespace bytes between tokens. Note that
-    // `char::is_whitespace` is a much larger set and would wrongly accept
-    // several fixtures in the corpus, so it is not used here or anywhere else.
-    let bytes = text.as_bytes();
-    let mut at = 0;
-    while at < bytes.len() && matches!(bytes[at], b' ' | b'\t' | b'\n' | b'\r') {
-        at += 1;
+        ));
     }
-    if at == bytes.len() {
-        return Err(ParseError::new(ErrorKind::EmptyInput, input, at));
-    }
-
-    // The value grammar is not implemented at this commit, so no byte can begin
-    // a value and this report is accurate rather than a placeholder.
-    Err(ParseError::new(
-        ErrorKind::UnexpectedByte { byte: bytes[at] },
-        input,
-        at,
-    ))
+    parser::parse_document(input)
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -22,7 +22,7 @@ use std::path::{Path, PathBuf};
 /// This is raised in the same commit as any grammar work that improves it. The
 /// point is that a later change which breaks something already working fails
 /// here instead of being discovered by reading the report carefully.
-const Y_FLOOR: usize = 0;
+const Y_FLOOR: usize = 5;
 
 /// Every `n_` fixture must be rejected, and that is true from the first commit
 /// because a parser that accepts nothing rejects all of them. So this floor is
