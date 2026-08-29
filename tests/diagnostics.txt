@@ -1,0 +1,161 @@
+# Every diagnostic jaq-lite can print, captured from the binary by
+# tests/diagnostics.rs and compared on every run. Regenerate after an intended
+# change with UPDATE_DIAGNOSTICS=1, then read the diff: this file is the review
+# surface for what a user sees when their JSON is wrong.
+#
+# Both streams are recorded, because the split matters -- a stream keeps the
+# documents it printed before the bad one. `stdin` is shown ASCII-escaped, so the
+# case that is deliberately not UTF-8 still reads as text.
+
+== an unclosed array ==
+filter  : .
+stdin   : [1,
+exit    : 5
+stdout  : (nothing)
+stderr  :
+jaq-lite: <stdin>: line 1, column 4: unexpected end of input
+  |
+1 | [1,
+  |    ^
+
+== a trailing comma ==
+filter  : .
+stdin   : [1, 2, 3,]
+exit    : 5
+stdout  : (nothing)
+stderr  :
+jaq-lite: <stdin>: line 1, column 10: unexpected `]`
+  |
+1 | [1, 2, 3,]
+  |          ^
+
+== a key that is not a string ==
+filter  : .
+stdin   : {1:2}
+exit    : 5
+stdout  : (nothing)
+stderr  :
+jaq-lite: <stdin>: line 1, column 2: expected a string as the object key
+  |
+1 | {1:2}
+  |  ^
+
+== a member with no value ==
+filter  : .
+stdin   : {\"a\":}
+exit    : 5
+stdout  : (nothing)
+stderr  :
+jaq-lite: <stdin>: line 1, column 6: unexpected `}`
+  |
+1 | {"a":}
+  |      ^
+
+== a truncated literal ==
+filter  : .
+stdin   : tru
+exit    : 5
+stdout  : (nothing)
+stderr  :
+jaq-lite: <stdin>: line 1, column 1: unexpected `t`
+  |
+1 | tru
+  | ^
+
+== an unterminated string ==
+filter  : .
+stdin   : [\"abc
+exit    : 5
+stdout  : (nothing)
+stderr  :
+jaq-lite: <stdin>: line 1, column 6: unexpected end of input
+  |
+1 | ["abc
+  |      ^
+
+== a stream whose second document is bad ==
+filter  : .
+stdin   : 1 2 [
+exit    : 5
+stdout  :
+1
+2
+stderr  :
+jaq-lite: <stdin>: line 1, column 6: unexpected end of input
+  |
+1 | 1 2 [
+  |      ^
+
+== an error that is not on line one ==
+filter  : .
+stdin   : {\n  \"a\": 1,\n  \"b\": ,\n}
+exit    : 5
+stdout  : (nothing)
+stderr  :
+jaq-lite: <stdin>: line 3, column 8: unexpected `,`
+  |
+3 |   "b": ,
+  |        ^
+
+== a tab ahead of the caret ==
+filter  : .
+stdin   : [\n\t1 2\n]
+exit    : 5
+stdout  : (nothing)
+stderr  :
+jaq-lite: <stdin>: line 2, column 4: expected `,` or `]`
+  |
+2 |     1 2
+  |       ^
+
+== a multi-byte character ahead of it ==
+filter  : .
+stdin   : [\"\xc3\xa9\", x]
+exit    : 5
+stdout  : (nothing)
+stderr  :
+jaq-lite: <stdin>: line 1, column 7: unexpected `x`
+  |
+1 | ["é", x]
+  |       ^
+
+== bytes that are not utf-8 ==
+filter  : .
+stdin   : [\"\xff\"]
+exit    : 5
+stdout  : (nothing)
+stderr  :
+jaq-lite: <stdin>: line 1, column 3: invalid UTF-8 after 2 valid bytes
+  |
+1 | ["�"]
+  |   ^
+
+== a line long enough to truncate ==
+filter  : .
+stdin   : [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,x]
+exit    : 5
+stdout  : (nothing)
+stderr  :
+jaq-lite: <stdin>: line 1, column 122: unexpected `x`
+  |
+1 | ...1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,x]
+  |                                                                                                  ^
+
+== a filter that does not compile ==
+filter  : .foo[
+stdin   : 
+exit    : 3
+stdout  : (nothing)
+stderr  :
+jaq-lite: filter, column 6: expected a whole number or a quoted name
+  |
+1 | .foo[
+  |      ^
+
+== no documents at all ==
+filter  : .
+stdin   : 
+exit    : 0
+stdout  : (nothing)
+stderr  : (nothing)
+

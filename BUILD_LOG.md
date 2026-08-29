@@ -505,3 +505,42 @@ snippet and what is left must equal the uncoloured one, byte for byte. That is
 checked over four malformed inputs rather than by reading the two format strings
 and trusting they agree. The ten hand-built snippet tests then keep passing
 unchanged, which is the other half of the same claim.
+
+## A recorded file is not an assertion
+
+`tests/diagnostics.txt` holds every diagnostic the tool can print, captured from
+the binary rather than from the renderer and rewritten by `UPDATE_DIAGNOSTICS=1`.
+It is the review surface for the thing a user actually reads when their JSON is
+wrong, and it is the first test that sees the whole of it: the summary line comes
+from `ParseError`, the snippet from `src/diag.rs`, and the prefix and the exit code
+from `src/main.rs`. Nothing else in the suite sees all three at once.
+
+The weakness of a recorded file is that it asserts nothing. It says the tool does
+what it currently does, which is worth having -- drift becomes a failing test
+rather than a quiet change of behaviour -- but it cannot say the current behaviour
+is right. So two of the three tests in `tests/diagnostics.rs` never open the file.
+One checks that the column the summary line reports is the column the caret is
+drawn under, which is two independently written code paths agreeing about a
+position neither learned from the other. The other checks that `-C` adds exactly
+three gutter runs, one caret run and eight escape bytes, and changes nothing else:
+strip the escapes back out and the result is the uncoloured run of the same input,
+byte for byte.
+
+Because the record is generated, the table could be weighted towards the cases
+that are hard to predict instead of the ones that are easy to guess. Fourteen
+invocations: a tab ahead of the caret, a multi-byte character ahead of it, a line
+long enough to be truncated, bytes that are not UTF-8 at all, an error that is not
+on line one, and a stream whose second document is the bad one. That last is why
+standard output is recorded too -- the documents printed before the failure are
+kept, and a record that only held standard error would not show it. The fourteenth
+prints no diagnostic at all, because a stream holding no documents is not an error
+and that is worth having checked rather than assumed.
+
+Two guards sit on the artifact rather than on the code. It must contain no `0x1b`,
+which is what makes it safe to `cat` in a terminal and to quote in a write-up. And
+it must name no `/home/`, `/root/`, `/Users/` or `/mnt/` path: every case is fed on
+standard input and reported as `<stdin>`, so a path appearing there would mean a
+diagnostic had begun leaking the machine it ran on. Both are asserted against the
+generated text rather than against the file on disk, because tests run in parallel
+and no test may depend on another having written it first. The comparison that
+follows makes the two equivalent.

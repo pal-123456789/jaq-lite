@@ -104,8 +104,14 @@ that refuses to flip an entry it cannot evidence. An entry that still says
     Snapshot testing is a file comparison and a way to regenerate the file. The
     first of these is `tests/i_decisions.tsv`, which records the decision taken
     on each implementation-defined fixture and is rewritten by setting
-    `UPDATE_I_DECISIONS=1`.
-    *Where:* `tests/conformance.rs`, `tests/i_decisions.tsv` · *Status:* shipped
+    `UPDATE_I_DECISIONS=1`. The second is `tests/diagnostics.txt`, which
+    records every diagnostic the binary can print, captured from the binary
+    rather than from the renderer, and rewritten by `UPDATE_DIAGNOSTICS=1`.
+    What a snapshot crate adds beyond a file and a switch is an interactive
+    review command. What it cannot add is teeth: a record only says the tool
+    does what it does today, so two of the three tests around this one never
+    open it.
+    *Where:* `tests/conformance.rs`, `tests/i_decisions.tsv`, `tests/diagnostics.rs`, `tests/diagnostics.txt` · *Status:* shipped
 
 13. **Normally:** `walkdir` or `glob`. **Instead:** `std::fs::read_dir` with an
     explicit sort of the results.
