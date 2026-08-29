@@ -22,10 +22,12 @@
 /// The crate version, read from `Cargo.toml` at compile time.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
+pub mod color;
 pub mod diag;
 pub mod error;
 pub mod value;
 
+pub use color::{Ink, Paint};
 pub use error::{ErrorKind, ParseError};
 pub use value::{Number, Value};
 
@@ -66,7 +68,25 @@ pub enum Style {
 ///
 /// Passes through whatever `out` returns.
 pub fn write<W: std::io::Write>(out: &mut W, value: &Value, style: Style) -> std::io::Result<()> {
-    serializer::write_value(out, value, style, 0)
+    write_painted(out, value, style, Paint::Never)
+}
+
+/// Write `value` to `out` as JSON text, coloured the way `jq -C` colours it.
+///
+/// With [`Paint::Never`] the bytes are exactly those [`write`] produces. That is
+/// asserted rather than asserted-in-a-comment: a test strips every escape from a
+/// coloured run and requires the remainder to equal the uncoloured run.
+///
+/// # Errors
+///
+/// Passes through whatever `out` returns.
+pub fn write_painted<W: std::io::Write>(
+    out: &mut W,
+    value: &Value,
+    style: Style,
+    paint: Paint,
+) -> std::io::Result<()> {
+    serializer::write_value(out, value, style, paint, 0)
 }
 
 /// Render `value` as a JSON string.

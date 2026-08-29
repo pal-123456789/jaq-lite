@@ -14,7 +14,7 @@
 //! two-character escape get it; everything else below `0x20`, plus `0x7F`, gets
 //! a lowercase four-digit `\u` escape.
 
-use crate::{Style, Value};
+use crate::{Ink, Paint, Style, Value};
 use std::io::{self, Write};
 
 /// One level of pretty-printed indentation.
@@ -29,50 +29,72 @@ pub(crate) fn write_value<W: Write>(
     out: &mut W,
     value: &Value,
     style: Style,
+    paint: Paint,
     depth: usize,
 ) -> io::Result<()> {
     match value {
-        Value::Null => out.write_all(b"null"),
-        Value::Bool(true) => out.write_all(b"true"),
-        Value::Bool(false) => out.write_all(b"false"),
+        Value::Null => tinted(out, paint, Ink::Null, b"null"),
+        Value::Bool(true) => tinted(out, paint, Ink::Bool, b"true"),
+        Value::Bool(false) => tinted(out, paint, Ink::Bool, b"false"),
         // The source text, not a reformatting of the f64. This is the whole
         // reason the number keeps its raw form: 1e2 goes out as 1e2, and an
         // integer too large for i64 or too precise for f64 survives intact.
-        Value::Number(number) => out.write_all(number.as_str().as_bytes()),
-        Value::String(text) => write_string(out, text),
+        Value::Number(number) => tinted(out, paint, Ink::Number, number.as_str().as_bytes()),
+        Value::String(text) => write_string(out, text, paint, Ink::Str),
         Value::Array(items) => {
+            // An empty container is one run holding both brackets rather than
+            // two runs of one bracket each. Measured, not assumed.
             if items.is_empty() {
-                return out.write_all(b"[]");
+                return tinted(out, paint, Ink::Array, b"[]");
             }
-            out.write_all(b"[")?;
+            tinted(out, paint, Ink::Array, b"[")?;
             for (index, item) in items.iter().enumerate() {
                 if index > 0 {
-                    out.write_all(b",")?;
+                    tinted(out, paint, Ink::Array, b",")?;
                 }
                 break_line(out, style, depth + 1)?;
-                write_value(out, item, style, depth + 1)?;
+                write_value(out, item, style, paint, depth + 1)?;
             }
             break_line(out, style, depth)?;
-            out.write_all(b"]")
+            tinted(out, paint, Ink::Array, b"]")
         }
         Value::Object(entries) => {
             if entries.is_empty() {
-                return out.write_all(b"{}");
+                return tinted(out, paint, Ink::Object, b"{}");
             }
-            out.write_all(b"{")?;
+            tinted(out, paint, Ink::Object, b"{")?;
             for (index, (key, member)) in entries.iter().enumerate() {
                 if index > 0 {
-                    out.write_all(b",")?;
+                    tinted(out, paint, Ink::Object, b",")?;
                 }
                 break_line(out, style, depth + 1)?;
-                write_string(out, key)?;
-                out.write_all(if style == Style::Pretty { b": " } else { b":" })?;
-                write_value(out, member, style, depth + 1)?;
+                write_string(out, key, paint, Ink::Key)?;
+                // The colon belongs inside the coloured run and the space after
+                // it does not, which is where jq draws the line. With colour off
+                // these two writes still put exactly `: ` on the wire.
+                tinted(out, paint, Ink::Object, b":")?;
+                if style == Style::Pretty {
+                    out.write_all(b" ")?;
+                }
+                write_value(out, member, style, paint, depth + 1)?;
             }
             break_line(out, style, depth)?;
-            out.write_all(b"}")
+            tinted(out, paint, Ink::Object, b"}")
         }
     }
+}
+
+/// Write `text` wrapped in `ink`, or exactly `text` when colour is off.
+///
+/// The escapes are skipped rather than written as empty slices, so an uncoloured
+/// run makes the same calls into `out` that it made before this module existed.
+fn tinted<W: Write>(out: &mut W, paint: Paint, ink: Ink, text: &[u8]) -> io::Result<()> {
+    if !paint.on() {
+        return out.write_all(text);
+    }
+    out.write_all(paint.open(ink).as_bytes())?;
+    out.write_all(text)?;
+    out.write_all(paint.close().as_bytes())
 }
 
 /// End a line and indent, or do nothing at all in compact style.
@@ -92,7 +114,11 @@ fn break_line<W: Write>(out: &mut W, style: Style, depth: usize) -> io::Result<(
 /// Ordinary bytes are written in runs rather than one at a time. Every byte that
 /// interrupts a run is ASCII, so a run boundary can never land inside a
 /// multi-byte character and the slices stay valid UTF-8 without any bookkeeping.
-fn write_string<W: Write>(out: &mut W, text: &str) -> io::Result<()> {
+fn write_string<W: Write>(out: &mut W, text: &str, paint: Paint, ink: Ink) -> io::Result<()> {
+    // The quotes go inside the coloured run, which is where jq puts them.
+    if paint.on() {
+        out.write_all(paint.open(ink).as_bytes())?;
+    }
     out.write_all(b"\"")?;
     let bytes = text.as_bytes();
     let mut run = 0;
@@ -121,7 +147,11 @@ fn write_string<W: Write>(out: &mut W, text: &str) -> io::Result<()> {
         run = index + 1;
     }
     out.write_all(&bytes[run..])?;
-    out.write_all(b"\"")
+    out.write_all(b"\"")?;
+    if paint.on() {
+        out.write_all(paint.close().as_bytes())?;
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -218,5 +248,135 @@ mod tests {
     fn there_is_no_trailing_newline() {
         let out = to_string(&Value::Null, Style::Pretty);
         assert_eq!(out, "null", "the caller owns the trailing newline");
+    }
+}
+
+#[cfg(test)]
+mod colour_tests {
+    use crate::{Paint, Style, parse, to_string, write_painted};
+
+    /// A spread wide enough to reach every arm of the serializer.
+    const SAMPLES: [&str; 8] = [
+        "null",
+        "true",
+        "1e2",
+        r#""s""#,
+        "[]",
+        "{}",
+        r#"[1,"x",null]"#,
+        r#"{"a":[1,{"b":{}}],"c":[]}"#,
+    ];
+
+    /// Serialize with colour on.
+    fn lit(src: &str, style: Style) -> String {
+        let value = parse(src.as_bytes()).expect(src);
+        let mut bytes = Vec::new();
+        write_painted(&mut bytes, &value, style, Paint::Always).expect("a Vec cannot fail");
+        String::from_utf8(bytes).expect("the serializer only emits valid UTF-8")
+    }
+
+    /// Remove every SGR sequence, leaving the JSON that carried them.
+    ///
+    /// SGR parameters are digits and semicolons, so the first `m` after the
+    /// escape is always the terminator and this needs no real parser.
+    fn stripped(text: &str) -> String {
+        let mut out = String::new();
+        let mut rest = text;
+        while let Some(start) = rest.find('\x1b') {
+            out.push_str(&rest[..start]);
+            let tail = &rest[start..];
+            let end = tail.find('m').expect("an SGR sequence with no terminator");
+            rest = &tail[end + 1..];
+        }
+        out.push_str(rest);
+        out
+    }
+
+    #[test]
+    fn every_scalar_gets_the_code_jq_gives_it() {
+        // Each of these was read off `jq -C -c .` under jq 1.8.1 with `od -c`.
+        assert_eq!(lit("null", Style::Compact), "\x1b[0;90mnull\x1b[0m");
+        assert_eq!(lit("true", Style::Compact), "\x1b[0;39mtrue\x1b[0m");
+        assert_eq!(lit("false", Style::Compact), "\x1b[0;39mfalse\x1b[0m");
+        assert_eq!(lit("1", Style::Compact), "\x1b[0;39m1\x1b[0m");
+        assert_eq!(lit(r#""s""#, Style::Compact), "\x1b[0;32m\"s\"\x1b[0m");
+    }
+
+    #[test]
+    fn an_empty_container_is_a_single_run_not_two() {
+        assert_eq!(lit("[]", Style::Compact), "\x1b[1;39m[]\x1b[0m");
+        assert_eq!(lit("{}", Style::Compact), "\x1b[1;39m{}\x1b[0m");
+    }
+
+    #[test]
+    fn punctuation_takes_the_colour_of_its_container() {
+        // The brace, the colon and the closing brace are object-coloured; the
+        // key has its own colour; each mark is a separate run.
+        assert_eq!(
+            lit(r#"{"a":1}"#, Style::Compact),
+            "\x1b[1;39m{\x1b[0m\x1b[1;34m\"a\"\x1b[0m\x1b[1;39m:\x1b[0m\x1b[0;39m1\x1b[0m\x1b[1;39m}\x1b[0m"
+        );
+        // And the comma between array elements is array-coloured.
+        assert_eq!(
+            lit("[1,2]", Style::Compact),
+            "\x1b[1;39m[\x1b[0m\x1b[0;39m1\x1b[0m\x1b[1;39m,\x1b[0m\x1b[0;39m2\x1b[0m\x1b[1;39m]\x1b[0m"
+        );
+    }
+
+    #[test]
+    fn indentation_and_the_colon_space_sit_outside_the_runs() {
+        // One line of this test per line of the `jq -C . | cat -v` transcript it
+        // was taken from. The two leading spaces and the space after the colon
+        // are outside every escape, which is the detail a reimplementation is
+        // most likely to get wrong.
+        let want = concat!(
+            "\x1b[1;39m{\x1b[0m\n",
+            "  \x1b[1;34m\"a\"\x1b[0m\x1b[1;39m:\x1b[0m \x1b[1;39m[\x1b[0m\n",
+            "    \x1b[0;39m1\x1b[0m\n",
+            "  \x1b[1;39m]\x1b[0m\n",
+            "\x1b[1;39m}\x1b[0m",
+        );
+        assert_eq!(lit(r#"{"a":[1]}"#, Style::Pretty), want);
+    }
+
+    #[test]
+    fn colour_off_is_byte_identical_to_no_colour_at_all() {
+        // This is the assertion that lets the conformance corpus and the
+        // round-trip property stay indifferent to this module existing.
+        for src in SAMPLES {
+            let value = parse(src.as_bytes()).expect(src);
+            for style in [Style::Pretty, Style::Compact] {
+                let mut bytes = Vec::new();
+                write_painted(&mut bytes, &value, style, Paint::Never).expect("a Vec cannot fail");
+                let plain = String::from_utf8(bytes).expect("valid UTF-8");
+                assert_eq!(
+                    plain,
+                    to_string(&value, style),
+                    "{src} changed with colour off"
+                );
+                assert!(
+                    !plain.contains('\x1b'),
+                    "{src} leaked an escape with colour off"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn removing_the_escapes_gives_back_exactly_the_plain_bytes() {
+        // Stated as a property rather than as a promise: colour may add escapes
+        // and may add nothing else.
+        for src in SAMPLES {
+            let value = parse(src.as_bytes()).expect(src);
+            for style in [Style::Pretty, Style::Compact] {
+                let coloured = lit(src, style);
+                assert!(coloured.contains('\x1b'), "{src} came back with no colour");
+                assert_eq!(
+                    stripped(&coloured),
+                    to_string(&value, style),
+                    "{src}: colour changed the JSON and not just its escapes"
+                );
+            }
+        }
     }
 }
