@@ -1,0 +1,160 @@
+# Standard library substitutions
+
+Every crate this project would ordinarily have reached for, what replaced it,
+and why. Seventeen entries.
+
+The `Status` line is `planned` until the replacing code exists, and is changed
+to `shipped` in the same commit that makes it real. Before submission the whole
+file is checked against the source tree, so an entry that still says `planned`
+means the substitution did not happen and the claim is not being made.
+
+---
+
+1. **Normally:** `serde` + `serde_json`. **Instead:** a hand-written
+   recursive-descent parser and serializer over a byte cursor.
+   The headline substitution; the rest of this file is downstream of it. Being
+   hand-written is also what makes RFC 8259 conformance a decision rather than
+   an inherited behaviour.
+   *Where:* `src/lexer.rs`, `src/parser.rs`, `src/serializer.rs` · *Status:* planned
+
+2. **Normally:** `clap` or `structopt`. **Instead:** a manual walk over
+   `std::env::args()` with a positional query and file, a `--` terminator, and
+   explicit rejection of unknown flags.
+   Argument parsing for a tool with under a dozen flags is a loop, not a
+   dependency. Unknown flags are rejected rather than ignored, which is the
+   behaviour people actually rely on.
+   *Where:* `src/main.rs` · *Status:* planned
+
+3. **Normally:** `rand`. **Instead:** SplitMix64 in fourteen lines.
+   Deterministic by construction, so a property-test failure replays exactly
+   from its seed instead of being irreproducible.
+   *Where:* `tests/roundtrip_fuzz.rs` · *Status:* planned
+
+4. **Normally:** `proptest` or `quickcheck`. **Instead:** a hand-written value
+   generator driven by the SplitMix64 above.
+   Stated plainly: there is no automatic shrinker. Counterexamples are
+   minimised by hand and the minimised input is recorded in the test. An
+   automatic shrinker was scoped and deliberately dropped for time rather than
+   half-built.
+   *Where:* `tests/roundtrip_fuzz.rs`, `tests/mutation_fuzz.rs` · *Status:* planned
+
+5. **Normally:** `thiserror` or `anyhow`. **Instead:** `#[derive(Debug)]`, a
+   manual `Display` impl, and `impl std::error::Error`.
+   Two crates replaced by roughly three lines of boilerplate per error type.
+   The error type is part of the public API, so writing it by hand also means
+   its `Display` output is designed rather than generated.
+   *Where:* `src/error.rs` · *Status:* planned
+
+6. **Normally:** `indexmap`, which is what `serde_json`'s `preserve_order`
+   feature pulls in. **Instead:** `Vec<(String, Value)>`.
+   Object key order is insertion order, matching `jq`, which is the behaviour
+   that makes round-tripping byte-exact. The cost is O(n) key lookup, accepted
+   and disclosed in the README rather than hidden.
+   *Where:* `src/value.rs` · *Status:* planned
+
+7. **Normally:** `ryu` and `itoa` for float and integer formatting.
+   **Instead:** parsed numbers are re-emitted verbatim from the exact byte span
+   the grammar validated, and numbers the tool synthesizes go through
+   `format_into` with `core::fmt::NumBuffer`.
+   Because a parsed number is written back byte for byte, no float formatting
+   happens on that path at all, which is how a thirty-digit integer survives a
+   round trip. Integer formatting is therefore the only remaining place number
+   text is generated, and `format_into` measured 1.68 times the speed of
+   `to_string` over five million values with zero mismatches, including
+   `i64::MIN`. Note for anyone following along: `NumBuffer` is not re-exported
+   through `std::fmt`, so the import must be `core::fmt::NumBuffer` or the
+   compiler answers with E0432. This is the nominated Package Killer.
+   *Where:* `src/value.rs`, `src/serializer.rs` · *Status:* planned
+
+8. **Normally:** `memchr`. **Instead:** plain byte-slice scanning over a
+   string that has already been validated as UTF-8.
+   Safe without any special care because UTF-8 continuation bytes are all
+   above 0x7F and therefore can never collide with the ASCII delimiters JSON
+   uses.
+   *Where:* `src/lexer.rs` · *Status:* planned
+
+9. **Normally:** `simdutf8` or `encoding_rs`. **Instead:**
+   `std::str::from_utf8`, with `Utf8Error::valid_up_to()` for the exact byte
+   offset where the input stopped being valid.
+   The offset is what turns "invalid UTF-8" into a diagnostic with a caret
+   under the right byte. Twenty-five fixtures in the corpus are not valid
+   UTF-8, so this path is exercised rather than theoretical.
+   *Where:* `src/parser.rs` · *Status:* planned
+
+10. **Normally:** `codespan-reporting`, `ariadne` or `miette`. **Instead:** a
+    caret renderer of roughly fifty lines, shared by the JSON parser and the
+    query parser.
+    Line, column, the source line, a caret under the offending byte, and a
+    reason. That is the whole feature those crates are usually pulled in for.
+    *Where:* `src/diag.rs` · *Status:* planned
+
+11. **Normally:** `criterion`. **Instead:** a single `std::time::Instant`
+    measurement around a fixed workload.
+    Honest about scope: there are no percentiles, no outlier rejection and no
+    statistical modelling. A percentile harness was planned and dropped, so
+    the README quotes one measured figure rather than implying a distribution.
+    *Where:* recorded in `README.md` and `CLAIMS.md` · *Status:* planned
+
+12. **Normally:** `insta`. **Instead:** a snapshot assertion of about twenty
+    lines with an `UPDATE_SNAPSHOTS` environment override.
+    Snapshot testing is a file comparison and a way to regenerate the file.
+    *Where:* `tests/conformance.rs`, `tests/snapshots/` · *Status:* planned
+
+13. **Normally:** `walkdir` or `glob`. **Instead:** `std::fs::read_dir` with an
+    explicit sort of the results.
+    The sort is load-bearing rather than tidy: `read_dir` returns entries in
+    alphabetical order on NTFS but in hash order on ext4, so without it the
+    conformance report would be ordered differently on a developer machine and
+    on the CI runner.
+    *Where:* `tests/conformance.rs` · *Status:* planned
+
+14. **Normally:** `pretty_assertions`. **Instead:** a small helper that prints
+    the first differing byte offset with the surrounding context.
+    For byte-exact round-trip failures, the offset of the first difference is
+    more useful than a coloured diff of two long lines.
+    *Where:* `tests/roundtrip_fuzz.rs` · *Status:* planned
+
+15. **Normally:** `jq` itself, invoked as an external binary. **Instead:** an
+    in-process query engine, so the tool shells out to nothing.
+    This one is about the spirit of the rule as much as the letter: an empty
+    dependency manifest in a program that requires a separately installed
+    binary at runtime has simply moved the dependency somewhere the manifest
+    cannot see. `jq` is used during development to verify output compatibility,
+    and is not required to run this tool.
+    *Where:* `src/query.rs` · *Status:* planned
+
+16. **Normally:** `unicode-segmentation`. **Instead:** `char` iteration where
+    character semantics genuinely matter, which is column counting for
+    diagnostics, and byte iteration everywhere else.
+    Also the reason `char::is_whitespace()` is never used to skip JSON
+    whitespace: Unicode `White_Space` is a much larger set than the four bytes
+    RFC 8259 permits, and six fixtures in the corpus exist to catch exactly
+    that mistake.
+    *Where:* `src/diag.rs`, `src/lexer.rs` · *Status:* planned
+
+17. **Normally:** `owo-colors` or `colored` for ANSI output, plus
+    `is-terminal` or `atty` to decide whether to emit it. **Instead:** a short
+    table of ANSI escape constants, with colour selected by explicit `-C` and
+    `-M` flags and suppressed by the `NO_COLOR` environment variable.
+    Worth stating rather than glossing: the standard library cannot detect
+    whether stdout is a terminal without going through `libc`, so automatic
+    detection is not available to a project under this constraint. Rather than
+    reach for a crate or guess, colour is opt-in and the limitation is
+    documented. Piped output contains no escape bytes at all, which is
+    verified by a test.
+    *Where:* `src/diag.rs`, `src/main.rs` · *Status:* planned
+
+---
+
+## Vendored third-party material, disclosed
+
+The conformance corpus in `tests/fixtures/` is vendored from JSONTestSuite by
+Nicolas Seriot, MIT licensed. It is third-party **data**, not code: it is never
+compiled into the binary, it does not appear in `Cargo.toml` or `Cargo.lock`,
+and it is marked in `.gitattributes` as vendored so that it is excluded from the
+repository language statistics. The upstream commit, the license text and a
+per-file SHA-256 manifest are in `tests/fixtures/ATTRIBUTION.md` and
+`tests/fixtures/FIXTURES_MANIFEST.sha256`.
+
+This disclosure is here as well as in the README because the rule about
+vendoring names this file specifically.
