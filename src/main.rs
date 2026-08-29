@@ -16,9 +16,12 @@ const EXIT_USAGE: u8 = 2;
 /// A filter this build cannot compile, which is jq's code for the same thing.
 const EXIT_FILTER: u8 = 3;
 
-/// A filter that could not run on the document it was given, which is jq's
-/// code for the same thing.
-const EXIT_RUNTIME: u8 = 5;
+/// A document that is not JSON, or a filter that could not run on it.
+///
+/// jq uses one code for both, which is not what this tool did until the
+/// behaviour was measured: invalid input and a runtime error both exit 5, and
+/// 2 is reserved for getting the invocation wrong.
+const EXIT_ERROR: u8 = 5;
 
 /// A closed pipe, which is not a failure at all. See `write_error`.
 const EXIT_FINE: u8 = 0;
@@ -41,9 +44,9 @@ Options:
 
 Exit codes:
   0   the filter ran
-  2   a problem with the invocation, an input file, or the JSON in it
+  2   a problem with the invocation, or with opening a file
   3   a filter that does not compile
-  5   a filter that could not run on the document
+  5   input that is not JSON, or a filter that could not run on it
 ";
 
 /// What went wrong, and what to exit with.
@@ -183,9 +186,12 @@ fn emit<W: Write>(
     origin: &str,
     style: Style,
 ) -> Result<(), Failure> {
-    let value = parse(bytes).map_err(|error| Failure::usage(format!("{origin}: {error}")))?;
+    let value = parse(bytes).map_err(|error| Failure {
+        code: EXIT_ERROR,
+        message: format!("{origin}: {error}"),
+    })?;
     let outputs = filter.run(&value).map_err(|error| Failure {
-        code: EXIT_RUNTIME,
+        code: EXIT_ERROR,
         message: format!("{origin}: {error}"),
     })?;
     for output in &outputs {

@@ -15,15 +15,23 @@
 //! more in complexity than the intermediate allocations cost in time for
 //! documents that fit in memory -- which is the only kind this tool reads.
 //!
+//! # Where the semantics come from
+//!
+//! Not from the jq manual. Every rule in here was run against jq 1.8.1 and the
+//! answer copied down, because the manual is silent or misleading on exactly the
+//! cases that matter. Two examples, both of which this module got wrong before
+//! the measurement: null is indexable but not iterable, and a trailing `?`
+//! forgives only the step it follows rather than the whole path to its left.
+//!
 //! # Depth
 //!
-//! Parenthesis nesting is capped, for the same reason the JSON parser caps
+//! Parenthesis nesting is capped at 64, for the same reason the JSON parser caps
 //! container nesting: recursive descent meets unbounded nesting as a stack
-//! overflow. The cap is lower here (64) because no human writes a filter
-//! anywhere near that deep. Note that the length of a *path* is not capped:
-//! `.a.a.a...` makes `eval` recurse once per step. That is acceptable where
-//! unbounded JSON nesting is not, because a filter is program text the user
-//! typed, while a document is untrusted input that arrived from somewhere else.
+//! overflow. The cap is lower here because no human writes a filter anywhere
+//! near that deep. Note that the length of a *path* is not capped: `.a.a.a...`
+//! makes `eval` recurse once per step. That is acceptable where unbounded JSON
+//! nesting is not, because a filter is program text the user typed, while a
+//! document is untrusted input that arrived from somewhere else.
 
 use crate::lexer::Cursor;
 use crate::value::Value;
@@ -31,6 +39,17 @@ use core::fmt;
 
 /// How deeply parentheses may nest.
 const MAX_DEPTH: u32 = 64;
+
+/// The longest offending value a message prints whole.
+///
+/// jq's number, measured rather than guessed: fourteen characters print whole
+/// and fifteen or more come back as eleven characters and three dots. That is
+/// jq formatting the value into a fifteen-byte buffer and overwriting the last
+/// three characters, and both boundaries are pinned by tests below.
+const SHOWN_FULL: usize = 14;
+
+/// How many characters survive the cut, which is the same arithmetic.
+const SHOWN_KEEP: usize = 11;
 
 /// A compiled filter.
 ///
@@ -88,6 +107,18 @@ impl Filter {
     }
 }
 
+/// What a single step does when the value it was handed is the wrong type.
+///
+/// This is what a trailing `?` sets, and it belongs on the step rather than on a
+/// wrapper because jq scopes it that narrowly: `.a.b?` still fails at `.a`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum OnError {
+    /// Report it.
+    Fail,
+    /// Produce nothing and carry on.
+    Skip,
+}
+
 /// One node of the compiled tree.
 #[derive(Debug, Clone)]
 enum Node {
@@ -98,13 +129,27 @@ enum Node {
     /// `a, b`
     Both(Box<Node>, Box<Node>),
     /// `a.name`, `a["name"]`
-    Field(Box<Node>, String),
+    Field(Box<Node>, String, OnError),
     /// `a[0]`, `a[-1]`
-    Index(Box<Node>, i64),
+    Index(Box<Node>, i64, OnError),
     /// `a[]`
-    Iterate(Box<Node>),
-    /// `a?`
+    Iterate(Box<Node>, OnError),
+    /// `(a)?` -- a `?` with no single step to attach to, so it catches whatever
+    /// the parenthesised filter raises.
     Optional(Box<Node>),
+}
+
+/// Make the outermost path step forgiving.
+///
+/// Only ever called when the outermost node *is* a step, so the last arm is a
+/// fallback rather than a case that happens.
+fn forgive(node: Node) -> Node {
+    match node {
+        Node::Field(source, name, _) => Node::Field(source, name, OnError::Skip),
+        Node::Index(source, index, _) => Node::Index(source, index, OnError::Skip),
+        Node::Iterate(source, _) => Node::Iterate(source, OnError::Skip),
+        other => Node::Optional(Box::new(other)),
+    }
 }
 
 // -- errors -----------------------------------------------------------------
@@ -168,7 +213,7 @@ pub enum FilterErrorKind {
     InvalidString,
     /// Brackets that hold neither a whole number nor a quoted name.
     InvalidIndex,
-    /// Parentheses nested past [`MAX_DEPTH`].
+    /// Parentheses nested deeper than the limit, which is 64.
     DepthLimitExceeded {
         /// The limit that was reached.
         limit: u32,
@@ -197,9 +242,8 @@ impl fmt::Display for FilterErrorKind {
 
 /// A filter asked a value for something that value cannot do.
 ///
-/// These are jq's runtime errors. They carry the type name rather than the
-/// value, because a message that quotes a whole document back at you is not a
-/// message anyone reads.
+/// The wording is jq 1.8.1's, capital letter and all, because a tool that claims
+/// to stand in for jq should fail the way jq fails.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EvalError {
     /// A field name used on something other than an object or null.
@@ -218,6 +262,8 @@ pub enum EvalError {
     NotIterable {
         /// The type that was iterated.
         found: &'static str,
+        /// The value itself, cut short exactly where jq cuts it short.
+        shown: String,
     },
 }
 
@@ -225,15 +271,30 @@ impl fmt::Display for EvalError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::NotIndexableByName { found, name } => {
-                write!(f, "cannot index {found} with \"{name}\"")
+                write!(f, "Cannot index {found} with string \"{name}\"")
             }
-            Self::NotIndexableByNumber { found } => write!(f, "cannot index {found} with a number"),
-            Self::NotIterable { found } => write!(f, "cannot iterate over {found}"),
+            Self::NotIndexableByNumber { found } => write!(f, "Cannot index {found} with number"),
+            Self::NotIterable { found, shown } => {
+                write!(f, "Cannot iterate over {found} ({shown})")
+            }
         }
     }
 }
 
 impl std::error::Error for EvalError {}
+
+/// How a value appears inside an error message.
+fn shown(value: &Value) -> String {
+    let text = crate::to_string(value, crate::Style::Compact);
+    if text.chars().count() <= SHOWN_FULL {
+        return text;
+    }
+    // Characters and not bytes. jq truncates with `strncpy` and will happily
+    // cut a UTF-8 sequence in half; matching that bug is not worth matching.
+    let mut short: String = text.chars().take(SHOWN_KEEP).collect();
+    short.push_str("...");
+    short
+}
 
 // -- tokens -----------------------------------------------------------------
 
@@ -445,18 +506,28 @@ impl Parser {
     /// A term followed by any number of steps: `.a[0][]?`.
     fn parse_postfix(&mut self) -> Result<Node, FilterError> {
         let mut node = self.parse_term()?;
+        // Whether a step has been appended since the term was parsed, which is
+        // what decides where a `?` attaches. With a step, it marks that step and
+        // errors from the rest of the path still escape -- jq's rule, measured.
+        // Without one, as in `(.a.b)?`, there is nothing narrower to mark, so it
+        // catches whatever the term raises.
+        let mut steps = 0_usize;
         loop {
             if matches!(self.peek(), Some(Token::Dot)) {
                 self.at += 1;
                 node = self.parse_step(node)?;
+                steps += 1;
             } else if matches!(self.peek(), Some(Token::OpenBracket)) {
                 self.at += 1;
                 node = self.parse_bracket(node)?;
+                steps += 1;
             } else if matches!(self.peek(), Some(Token::Question)) {
-                // `?` covers the whole chain to its left, which is what jq does:
-                // `.a.b?` swallows a failure at `.a` as well as at `.b`.
                 self.at += 1;
-                node = Node::Optional(Box::new(node));
+                node = if steps > 0 {
+                    forgive(node)
+                } else {
+                    Node::Optional(Box::new(node))
+                };
             } else {
                 return Ok(node);
             }
@@ -503,8 +574,8 @@ impl Parser {
 
     /// What follows a `.`: a name, a quoted name, or a bracket.
     fn parse_step(&mut self, source: Node) -> Result<Node, FilterError> {
-        /// Read out of the token before touching `self` again, so the borrow the
-        /// name comes from is over before the cursor moves.
+        // Read out of the token before touching `self` again, so the borrow the
+        // name comes from is over before the cursor moves.
         enum Step {
             Name(String),
             Bracket,
@@ -522,7 +593,7 @@ impl Parser {
         };
         self.at += 1;
         match step {
-            Step::Name(name) => Ok(Node::Field(Box::new(source), name)),
+            Step::Name(name) => Ok(Node::Field(Box::new(source), name, OnError::Fail)),
             Step::Bracket => self.parse_bracket(source),
         }
     }
@@ -544,14 +615,14 @@ impl Parser {
         };
         self.at += 1;
         match inside {
-            Inside::Iterate => Ok(Node::Iterate(Box::new(source))),
+            Inside::Iterate => Ok(Node::Iterate(Box::new(source), OnError::Fail)),
             Inside::Name(name) => {
                 self.expect(&Token::CloseBracket, "]")?;
-                Ok(Node::Field(Box::new(source), name))
+                Ok(Node::Field(Box::new(source), name, OnError::Fail))
             }
             Inside::At(value) => {
                 self.expect(&Token::CloseBracket, "]")?;
-                Ok(Node::Index(Box::new(source), value))
+                Ok(Node::Index(Box::new(source), value, OnError::Fail))
             }
         }
     }
@@ -577,27 +648,41 @@ fn eval(node: &Node, input: &Value, out: &mut Vec<Value>) -> Result<(), EvalErro
             eval(left, input, out)?;
             eval(right, input, out)
         }
-        Node::Field(source, name) => {
+        Node::Field(source, name, on_error) => {
             let mut values = Vec::new();
             eval(source, input, &mut values)?;
             for value in &values {
-                out.push(field(value, name)?);
+                match field(value, name) {
+                    Ok(found) => out.push(found),
+                    Err(error) if *on_error == OnError::Fail => return Err(error),
+                    Err(_) => {}
+                }
             }
             Ok(())
         }
-        Node::Index(source, index) => {
+        Node::Index(source, index, on_error) => {
             let mut values = Vec::new();
             eval(source, input, &mut values)?;
             for value in &values {
-                out.push(at(value, *index)?);
+                match at(value, *index) {
+                    Ok(found) => out.push(found),
+                    Err(error) if *on_error == OnError::Fail => return Err(error),
+                    Err(_) => {}
+                }
             }
             Ok(())
         }
-        Node::Iterate(source) => {
+        Node::Iterate(source, on_error) => {
             let mut values = Vec::new();
             eval(source, input, &mut values)?;
             for value in &values {
-                iterate(value, out)?;
+                // `iterate` reports the wrong type before appending anything, so
+                // a skipped element leaves no half-written output behind.
+                match iterate(value, out) {
+                    Ok(()) => {}
+                    Err(error) if *on_error == OnError::Fail => return Err(error),
+                    Err(_) => {}
+                }
             }
             Ok(())
         }
@@ -675,6 +760,7 @@ fn iterate(value: &Value, out: &mut Vec<Value>) -> Result<(), EvalError> {
         }
         other => Err(EvalError::NotIterable {
             found: other.type_name(),
+            shown: shown(other),
         }),
     }
 }
@@ -707,6 +793,13 @@ mod tests {
 
     fn wont_compile(filter: &str) -> FilterError {
         Filter::compile(filter).expect_err("the test filter should not have compiled")
+    }
+
+    fn cannot_index_number_with_a() -> EvalError {
+        EvalError::NotIndexableByName {
+            found: "number",
+            name: "a".to_owned(),
+        }
     }
 
     #[test]
@@ -790,7 +883,7 @@ mod tests {
     }
 
     #[test]
-    fn a_question_mark_turns_an_error_into_nothing() {
+    fn a_question_mark_forgives_only_the_step_it_follows() {
         assert!(
             run(".a?", "1").is_empty(),
             "a number has no fields, and `?` forgives it"
@@ -801,9 +894,12 @@ mod tests {
             vec!["1"],
             "`?` does not change a success"
         );
-        // The error is inside the chain rather than at its end, and `?` still
-        // covers it, because it applies to everything to its left.
-        assert!(run(".a.b?", "1").is_empty());
+        // Measured against jq 1.8.1, which errors here. `?` marks `.b`; the
+        // failure happens earlier, at `.a`, and is none of its business.
+        assert_eq!(fails(".a.b?", "1"), cannot_index_number_with_a());
+        // Parentheses are how you catch the whole path, and there `?` has no
+        // single step to attach to.
+        assert!(run("(.a.b)?", "1").is_empty());
     }
 
     #[test]
@@ -815,45 +911,74 @@ mod tests {
                 name: "a".to_owned()
             }
         );
-        assert_eq!(
-            fails(".a", "1"),
-            EvalError::NotIndexableByName {
-                found: "number",
-                name: "a".to_owned()
-            }
-        );
+        assert_eq!(fails(".a", "1"), cannot_index_number_with_a());
         assert_eq!(
             fails(".[0]", r#"{"a":1}"#),
             EvalError::NotIndexableByNumber { found: "object" }
         );
         assert_eq!(
             fails(".[]", "null"),
-            EvalError::NotIterable { found: "null" }
+            EvalError::NotIterable {
+                found: "null",
+                shown: "null".to_owned()
+            }
         );
         assert_eq!(
             fails(".[]", r#""s""#),
-            EvalError::NotIterable { found: "string" }
-        );
-    }
-
-    #[test]
-    fn an_error_inside_a_pipeline_stops_the_pipeline() {
-        assert_eq!(
-            fails(".[] | .a", "[{},1]"),
-            EvalError::NotIndexableByName {
-                found: "number",
-                name: "a".to_owned()
+            EvalError::NotIterable {
+                found: "string",
+                shown: "\"s\"".to_owned()
             }
         );
     }
 
     #[test]
-    fn the_message_names_the_type_the_way_jq_does() {
+    fn an_error_inside_a_pipeline_stops_the_pipeline() {
+        assert_eq!(fails(".[] | .a", "[{},1]"), cannot_index_number_with_a());
+    }
+
+    #[test]
+    fn the_message_is_word_for_word_what_jq_prints() {
         assert_eq!(
             fails(".a", "true").to_string(),
-            "cannot index boolean with \"a\""
+            "Cannot index boolean with string \"a\""
         );
-        assert_eq!(fails(".[]", "1").to_string(), "cannot iterate over number");
+        assert_eq!(
+            fails(".[0]", "{}").to_string(),
+            "Cannot index object with number"
+        );
+        assert_eq!(
+            fails(".[]", "null").to_string(),
+            "Cannot iterate over null (null)"
+        );
+        assert_eq!(
+            fails(".[]", r#""s""#).to_string(),
+            "Cannot iterate over string (\"s\")"
+        );
+    }
+
+    #[test]
+    fn a_long_value_is_cut_short_in_the_message() {
+        // Every string below was copied out of jq 1.8.1's own output for the
+        // same input. jq keeps eleven characters and cuts at fifteen, so the
+        // fourteen-character cases are the last ones that print whole.
+        let long = format!("\"{}\"", "a".repeat(100));
+        assert_eq!(
+            fails(".[]", &long).to_string(),
+            "Cannot iterate over string (\"aaaaaaaaaa...)"
+        );
+        assert_eq!(
+            fails(".[]", "\"aaaaaaaaaaaa\"").to_string(),
+            "Cannot iterate over string (\"aaaaaaaaaaaa\")"
+        );
+        assert_eq!(
+            fails(".[]", "12345678901234").to_string(),
+            "Cannot iterate over number (12345678901234)"
+        );
+        assert_eq!(
+            fails(".[]", "123456789012345").to_string(),
+            "Cannot iterate over number (12345678901...)"
+        );
     }
 
     #[test]

@@ -93,7 +93,12 @@ fn version_reports_the_crate_version() {
 #[test]
 fn malformed_input_is_reported_with_a_position() {
     let result = run(&["."], "{\"a\": }");
-    assert_eq!(result.code, Some(2));
+    assert_eq!(
+        result.code,
+        Some(5),
+        "jq exits 5 for input that is not JSON, stderr was: {}",
+        result.stderr
+    );
     assert!(
         result.stderr.contains("line 1, column"),
         "the error should locate itself, got: {}",
@@ -141,7 +146,9 @@ fn a_filter_that_cannot_run_has_its_own_exit_code() {
         result.stderr
     );
     assert!(
-        result.stderr.contains("cannot index"),
+        result
+            .stderr
+            .contains("Cannot index array with string \"a\""),
         "got: {}",
         result.stderr
     );
