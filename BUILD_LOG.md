@@ -335,3 +335,40 @@ Windows MSVC is not byte-reproducible and is not claimed to be. A build-unique
 GUID sits in the PE debug directory and survives `/Brepro`, `debug = 0` and
 `strip = "symbols"`. The claim is ELF, stated as such rather than left for
 someone to discover.
+
+## The same check on hardware that is not mine
+
+`.github/workflows/ci.yml` runs `scripts/reproducible_build.sh` on a GitHub
+runner as a job of its own, so the four assertions above are re-made on a machine
+nobody here controls and the evidence is a link rather than a paste. It carries
+no `needs`, so it runs beside the platform gate rather than queueing behind both
+of its legs.
+
+That job then does one thing the script does not. It runs the plain
+`cargo build --release --locked --offline` that this file offers as its
+verification recipe, hashes the result, and prints it beside the hash recorded
+above.
+
+That comparison is reported and never gated, which is a deliberate choice rather
+than a hedge. The four assertions establish a *property*: any two builds of this
+source on one machine produce the same bytes. CI re-establishes that property on
+foreign hardware. Neither of them establishes that the recorded *constant* is
+universal, and it probably is not. The artifact is linked by the host `cc`
+against the host libc's startup objects, so a runner with different binutils or
+a different glibc can satisfy every assertion here and still produce a different
+sha256. Gating on the constant would convert a claim this project has not
+measured into a red build on somebody else's patch Tuesday.
+
+So the honest form is: identical source, identical rustc version and identical
+host toolchain give identical bytes. The first two of those three are pinned in
+this repository -- `rust-version` in `Cargo.toml`, `rust-toolchain.toml`, and the
+assertion in the workflow that reads the manifest rather than trusting it. The
+third is not, and cannot be. Whether a given runner agrees with the value above
+is printed in every run; it is a fact this project reports rather than one it
+asserts.
+
+The extraction itself *is* gated. The step fails if no `sha256` line can be found
+in this file, because a comparison step that silently compares nothing is worse
+than no step at all -- it reports success. The same `sed` pattern was run against
+this file before the workflow was committed, and cross-checked against an
+independent extraction, so the two cannot have drifted at the moment of writing.
