@@ -120,21 +120,46 @@ fn no_filter_at_all_is_a_usage_error() {
 }
 
 #[test]
-fn an_unsupported_filter_has_its_own_exit_code() {
-    let result = run(&[".foo"], "{}");
+fn a_filter_that_does_not_compile_has_its_own_exit_code() {
+    let result = run(&["length"], "{}");
     assert_eq!(
         result.code,
         Some(3),
-        "an unsupported filter is not a usage error, stderr was: {}",
+        "a bad filter is not a usage error, stderr was: {}",
+        result.stderr
+    );
+    assert!(result.stderr.contains("column"), "got: {}", result.stderr);
+}
+
+#[test]
+fn a_filter_that_cannot_run_has_its_own_exit_code() {
+    let result = run(&[".a"], "[1]");
+    assert_eq!(
+        result.code,
+        Some(5),
+        "a runtime error is neither a usage nor a compile error, stderr was: {}",
         result.stderr
     );
     assert!(
-        result.stderr.contains("unsupported filter"),
+        result.stderr.contains("cannot index"),
         "got: {}",
         result.stderr
     );
 }
 
+#[test]
+fn a_path_reaches_into_the_document() {
+    let result = run(&["-c", ".users[0].name"], r#"{"users":[{"name":"ada"}]}"#);
+    assert_eq!(result.code, Some(0), "stderr was: {}", result.stderr);
+    assert_eq!(result.stdout, "\"ada\"\n");
+}
+
+#[test]
+fn a_filter_with_several_outputs_prints_one_per_line() {
+    let result = run(&["-c", ".[] | .id"], r#"[{"id":1},{"id":2}]"#);
+    assert_eq!(result.code, Some(0), "stderr was: {}", result.stderr);
+    assert_eq!(result.stdout, "1\n2\n");
+}
 #[test]
 fn a_file_is_read_instead_of_standard_input() {
     let path = temp_file("one.json", "[1,2]");

@@ -30,6 +30,7 @@ pub use value::{Number, Value};
 
 mod lexer;
 mod parser;
+mod query;
 mod serializer;
 
 /// Parse a JSON document.
@@ -85,6 +86,9 @@ pub fn to_string(value: &Value, style: Style) -> String {
     write(&mut bytes, value, style).expect("writing into a Vec cannot fail");
     String::from_utf8(bytes).expect("the serializer only ever emits valid UTF-8")
 }
+/// The filter language: [`Filter::compile`] turns jq-style text into something
+/// [`Filter::run`] can apply to a [`Value`].
+pub use query::{EvalError, Filter, FilterError, FilterErrorKind};
 #[cfg(test)]
 mod tests {
     use super::*;

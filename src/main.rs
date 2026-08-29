@@ -5,7 +5,7 @@
 
 #![forbid(unsafe_code)]
 
-use jaq_lite::{Style, parse};
+use jaq_lite::{Filter, Style, parse};
 use std::io::{self, Read, Write};
 use std::process::ExitCode;
 
@@ -15,6 +15,10 @@ const EXIT_USAGE: u8 = 2;
 
 /// A filter this build cannot compile, which is jq's code for the same thing.
 const EXIT_FILTER: u8 = 3;
+
+/// A filter that could not run on the document it was given, which is jq's
+/// code for the same thing.
+const EXIT_RUNTIME: u8 = 5;
 
 /// A closed pipe, which is not a failure at all. See `write_error`.
 const EXIT_FINE: u8 = 0;
@@ -38,7 +42,8 @@ Options:
 Exit codes:
   0   the filter ran
   2   a problem with the invocation, an input file, or the JSON in it
-  3   a filter this build does not support
+  3   a filter that does not compile
+  5   a filter that could not run on the document
 ";
 
 /// What went wrong, and what to exit with.
@@ -91,31 +96,23 @@ fn run() -> Result<(), Failure> {
         return Ok(());
     };
 
-    // The query language arrives in a later commit. Refusing an unsupported
-    // filter with its own exit code, rather than ignoring it and printing the
-    // input unchanged, is the difference between a limitation and a lie.
-    if options.filter.trim() != "." {
-        return Err(Failure::filter(format!(
-            "unsupported filter `{}`; this build understands `.` only",
-            options.filter
-        )));
-    }
-
+    let filter =
+        Filter::compile(&options.filter).map_err(|error| Failure::filter(error.to_string()))?;
     let stdout = io::stdout();
     let mut out = io::BufWriter::new(stdout.lock());
 
     if options.files.is_empty() {
         let bytes = read_stdin()?;
-        emit(&mut out, &bytes, "<stdin>", options.style)?;
+        emit(&mut out, &filter, &bytes, "<stdin>", options.style)?;
     } else {
         for path in &options.files {
             if path == "-" {
                 let bytes = read_stdin()?;
-                emit(&mut out, &bytes, "<stdin>", options.style)?;
+                emit(&mut out, &filter, &bytes, "<stdin>", options.style)?;
             } else {
                 let bytes = std::fs::read(path)
                     .map_err(|error| Failure::usage(format!("{path}: {error}")))?;
-                emit(&mut out, &bytes, path, options.style)?;
+                emit(&mut out, &filter, &bytes, path, options.style)?;
             }
         }
     }
@@ -172,16 +169,31 @@ fn read_stdin() -> Result<Vec<u8>, Failure> {
     Ok(bytes)
 }
 
-/// Parse one document and write the result, followed by a newline.
+/// Run the filter over one document and write every output, one per line.
 ///
 /// Bytes rather than text, so that a file which is not valid UTF-8 is reported
 /// with a position instead of failing before parsing starts.
-fn emit<W: Write>(out: &mut W, bytes: &[u8], origin: &str, style: Style) -> Result<(), Failure> {
+///
+/// A filter produces a stream, not a value: none for a path that misses under
+/// `?`, several for `.[]`. So this writes a loop.
+fn emit<W: Write>(
+    out: &mut W,
+    filter: &Filter,
+    bytes: &[u8],
+    origin: &str,
+    style: Style,
+) -> Result<(), Failure> {
     let value = parse(bytes).map_err(|error| Failure::usage(format!("{origin}: {error}")))?;
-    jaq_lite::write(out, &value, style).map_err(|error| write_error(&error))?;
-    out.write_all(b"\n").map_err(|error| write_error(&error))
+    let outputs = filter.run(&value).map_err(|error| Failure {
+        code: EXIT_RUNTIME,
+        message: format!("{origin}: {error}"),
+    })?;
+    for output in &outputs {
+        jaq_lite::write(out, output, style).map_err(|error| write_error(&error))?;
+        out.write_all(b"\n").map_err(|error| write_error(&error))?;
+    }
+    Ok(())
 }
-
 /// Classify an output error.
 ///
 /// A broken pipe is how `jaq-lite . big.json | head` is supposed to end. Exiting

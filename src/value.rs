@@ -37,6 +37,23 @@ pub enum Value {
 }
 
 impl Value {
+    /// The name jq uses for this value's type.
+    ///
+    /// jq's spellings, not Rust's: a `Bool` is a "boolean". These words appear
+    /// in error messages and are what the `type` filter will return, so there is
+    /// only one place to get them wrong.
+    #[must_use]
+    pub fn type_name(&self) -> &'static str {
+        match self {
+            Self::Null => "null",
+            Self::Bool(_) => "boolean",
+            Self::Number(_) => "number",
+            Self::String(_) => "string",
+            Self::Array(_) => "array",
+            Self::Object(_) => "object",
+        }
+    }
+
     /// Compare two values by representation rather than by numeric value.
     ///
     /// This differs from `==` in exactly one place: two numbers are identical
