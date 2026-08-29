@@ -58,14 +58,20 @@ fn spawn(args: &[&str], input: &str, no_color: Option<&str>) -> Run {
     let mut child = command
         .spawn()
         .expect("could not start the jaq-lite binary");
-    // An empty input never touches the pipe, so `--help` -- which exits before
-    // reading -- cannot fail here with a broken pipe.
-    child
+    // The write is setup, not an assertion. `--help` exits before it reads, so the
+    // read end can already be closed; every fact these tests care about is read
+    // from what the child did, not from whether the input arrived.
+    //
+    // This used to be safe for a narrower reason -- every case that exits early is
+    // fed an empty input, and `write_all` of an empty buffer performs no write at
+    // all -- which is a convention a later case can break without noticing. The
+    // same helper in `tests/cli.rs` was safe for the same reason until a case fed
+    // it four bytes, and CI found the race a year of local runs would not have.
+    let _ = child
         .stdin
         .as_mut()
         .expect("stdin was piped")
-        .write_all(input.as_bytes())
-        .expect("could not write to the child");
+        .write_all(input.as_bytes());
     let output = child
         .wait_with_output()
         .expect("could not wait for the child");

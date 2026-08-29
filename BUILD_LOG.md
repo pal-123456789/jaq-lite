@@ -544,3 +544,52 @@ diagnostic had begun leaking the machine it ran on. Both are asserted against th
 generated text rather than against the file on disk, because tests run in parallel
 and no test may depend on another having written it first. The comparison that
 follows makes the two equivalent.
+
+## The gate ran this test, and it passed
+
+CI failed `tests/cli.rs::an_unknown_option_is_a_usage_error` with
+`Os { code: 32, kind: BrokenPipe, message: "Broken pipe" }`. Errno 32 is `EPIPE`,
+so that is the Linux leg. The local gate had run the same test, on the same
+Ubuntu, on the same toolchain, minutes earlier, and it passed. No line of the
+code under test differed between the two runs. What differed was scheduling.
+
+The helper that spawns the binary wrote each test's input to the child's standard
+input and treated a failed write as a failed test. `jaq-lite --nope .` rejects the
+option in `parse_args` before it reads a byte, so that child exits, the read end
+of the pipe closes, and the write has nowhere to land. Whether it lands anyway is
+a race the pipe's own buffer usually wins: four bytes of `null` fit into it and
+the write returns long before the child can exit. Under CI's load the child won.
+
+Two things were wrong here and only one of them is the race. The write was never
+the thing under test. Every fact that test asserts -- exit code 2, `unknown
+option` on standard error, nothing on standard output -- is read from what the
+child did afterwards, so an incomplete write cannot turn a defect into a pass. At
+worst it turns one into a confusing failure. So the first half of the fix is to
+stop asserting on the write at all.
+
+The second half is harder, because the tolerant path is now reached only when the
+race is lost, which is seldom, which is exactly how a green suite hid the problem
+in the first place. A fix whose correctness depends on a rare event is not much
+better than the bug. So `a_rejected_invocation_is_unaffected_by_how_much_input_it_was_sent`
+sends a megabyte to a child that rejects its arguments. No pipe buffers that, so
+the write certainly cannot complete, and the tolerance is exercised on every run
+on every platform rather than on the unlucky ones. The test asserts the write did
+not finish, and then asserts the same three facts the four-byte case asserts:
+how much input the caller sent is not something a rejected invocation is allowed
+to depend on.
+
+Two other files had grown the same helper. `tests/color.rs` was safe for a stated
+reason -- every case that exits early is fed an empty input, and `write_all` of an
+empty buffer performs no write -- and `tests/diagnostics.rs`, one commit old, was
+safe for that reason deliberately. Being safe by a convention that a later test
+can break without noticing is not the same as being safe, so both tolerate the
+write now too. The comment that used to explain why the narrow reason sufficed has
+been replaced by one explaining why it no longer has to.
+
+The lesson is about the gate rather than the pipe. The local gate is a superset of
+CI by construction, and that is still true, and it was not enough: a run is not a
+proof. Running a test that depends on timing once and seeing it pass says nothing
+about the next run, and no number of repetitions turns that into an argument. The
+only durable answer is to remove the timing dependence and then to add a test
+that makes the previously lucky path certain. A flaky test is worse than a failing
+one, because it spends its failures on somebody else's commit.

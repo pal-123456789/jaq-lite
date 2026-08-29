@@ -156,16 +156,16 @@ fn invoke(filter: &str, stdin: &[u8], colour: bool) -> Run {
         .stderr(Stdio::piped())
         .spawn()
         .expect("could not start the jaq-lite binary");
-    // Every case that gives the child work to do feeds it valid arguments, so the
-    // child is still reading when this runs. The one case with a filter that does
-    // not compile is fed nothing, because that child exits before reading and the
-    // write would land on a closed pipe.
-    child
+    // The write is setup, not an assertion. The case with a filter that does not
+    // compile is still fed nothing, because that child exits before it reads -- but
+    // that is no longer what keeps this helper safe. An incomplete write is
+    // tolerated, and every fact the tests care about is read from what the child
+    // did, so a case added later cannot make this line the reason CI is red.
+    let _ = child
         .stdin
         .as_mut()
         .expect("stdin was piped")
-        .write_all(stdin)
-        .expect("could not write to the child");
+        .write_all(stdin);
     let output = child
         .wait_with_output()
         .expect("could not wait for the child");

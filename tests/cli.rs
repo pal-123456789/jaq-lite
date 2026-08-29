@@ -13,6 +13,13 @@ struct Run {
     stdout: String,
     stderr: String,
     code: Option<i32>,
+    /// Whether the whole of the input reached the child.
+    ///
+    /// False is not a failure. A child that rejects its arguments exits before it
+    /// reads, so the read end of the pipe can be closed before the write happens.
+    /// One test asserts this is false, which is what keeps that path exercised on
+    /// purpose rather than by luck.
+    wrote_all: bool,
 }
 
 fn run(args: &[&str], input: &str) -> Run {
@@ -23,12 +30,20 @@ fn run(args: &[&str], input: &str) -> Run {
         .stderr(Stdio::piped())
         .spawn()
         .expect("could not start the jaq-lite binary");
-    child
+    // The write is setup, not an assertion, so a write that fails is not this
+    // test's failure. A child that rejects its arguments exits before it reads a
+    // byte, so the read end of this pipe may already be closed -- and whether it is
+    // depends on scheduling. CI failed `an_unknown_option_is_a_usage_error` with a
+    // broken pipe on code whose local gate had run the same test and passed.
+    //
+    // Nothing is hidden by tolerating it. Every fact each test cares about is read
+    // below from what the child actually did, so an incomplete write can only turn
+    // a real defect into a clearer failure than `Broken pipe` -- never into a pass.
+    let wrote = child
         .stdin
         .as_mut()
         .expect("stdin was piped")
-        .write_all(input.as_bytes())
-        .expect("could not write to the child");
+        .write_all(input.as_bytes());
     // `wait_with_output` closes stdin first, which is what lets the child see
     // end of input rather than blocking forever.
     let output = child
@@ -38,6 +53,7 @@ fn run(args: &[&str], input: &str) -> Run {
         stdout: String::from_utf8(output.stdout).expect("stdout was not UTF-8"),
         stderr: String::from_utf8(output.stderr).expect("stderr was not UTF-8"),
         code: output.status.code(),
+        wrote_all: wrote.is_ok(),
     }
 }
 
@@ -116,6 +132,34 @@ fn an_unknown_option_is_a_usage_error() {
         "got: {}",
         result.stderr
     );
+}
+
+#[test]
+fn a_rejected_invocation_is_unaffected_by_how_much_input_it_was_sent() {
+    // A megabyte, which no pipe buffers, so this child's read end is certainly
+    // closed before the last byte is written. That is the point of the size: the
+    // tolerance in `run` is otherwise reached only when the race above is lost,
+    // which is seldom, which is how a green suite hid it until CI lost it.
+    //
+    // This cannot hang. `--nope` is rejected in `parse_args` before stdin is
+    // touched, and the two lines the child writes to stderr are far short of that
+    // pipe's buffer, so the child always reaches its exit and always closes the
+    // read end -- which is what ends the write, with an error rather than a wait.
+    let big = "null ".repeat(200_000);
+    let result = run(&["--nope", "."], &big);
+    assert!(
+        !result.wrote_all,
+        "a megabyte reached a child that never reads"
+    );
+    // The same three facts the four-byte case asserts. How much input the caller
+    // sent is not something a rejected invocation is allowed to depend on.
+    assert_eq!(result.code, Some(2));
+    assert!(
+        result.stderr.contains("unknown option"),
+        "got: {}",
+        result.stderr
+    );
+    assert!(result.stdout.is_empty(), "got: {}", result.stdout);
 }
 
 #[test]
