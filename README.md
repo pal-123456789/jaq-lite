@@ -17,15 +17,20 @@ check it.
 
 ## Proof of an empty dependency graph
 
-Three commands, no interpretation required:
+`cargo tree` prints one crate, because there is only one:
 
-    cargo tree
-    cargo metadata --format-version 1 --no-deps
-    grep -c "^\[\[package\]\]" Cargo.lock
+    jaq-lite v0.1.0 (D:\zero-dep\jaq-lite)
 
-Their captured output is committed as `deps-proof.txt`, and the four-line
-excerpt showing a package count of exactly 1 is reproduced here once that file
-exists.
+`Cargo.lock` holds exactly 1 `[[package]]` entry, this crate, which is what
+an empty dependency graph looks like in a lock file. The whole capture is
+committed as `deps-proof.txt`: toolchain versions, both manifests, the tree, and
+a release build run as
+
+    cargo build --release --offline --locked
+
+where `--offline` rules out a fetch and `--locked` rules out the lock file being
+rewritten to make the build succeed. Those are the two ways an accidental
+dependency could hide.
 
 ## Install and run
 
@@ -37,7 +42,40 @@ One command, no flags, no feature selection, no network access after the clone.
 
 ## Usage
 
-Filled in when the CLI accepts arguments.
+Reads standard input, or a file named as the last argument. `-c` compacts the
+output, `--` ends option parsing, `-h` prints usage.
+
+    $ jaq-lite . users.json
+    {
+      "users": [
+        {
+          "name": "ada",
+          "admin": true
+        },
+        {
+          "name": "linus",
+          "admin": false
+        }
+      ],
+      "count": 2
+    }
+
+    $ jaq-lite -c '.users[] | .name' users.json
+    "ada"
+    "linus"
+
+    $ jaq-lite -c '.count, .users[0].admin' users.json
+    2
+    true
+
+    $ printf '1 2 3' | jaq-lite -c .
+    1
+    2
+    3
+
+Exit codes follow jq: 2 for a bad flag or a file that will not open, 3 for a
+filter that does not compile, 5 for input that is not JSON or a filter that
+fails on a document, and 0 otherwise.
 
 ## Diagnostics
 
@@ -47,14 +85,91 @@ renderer exists.
 
 ## jq compatibility
 
-Output is byte-compatible with `jq` wherever a choice exists. The differential
-comparison and the table of deliberate divergences go here.
+Output is byte-compatible with `jq` wherever a choice exists. Every claim in this
+section was produced by running `jq-1.8.1` beside this binary, not by reading its
+manual, which documents almost none of it. Two divergences are deliberate.
+
+**Numbers are re-emitted from the bytes that were read.** jq re-renders them
+through its own decimal formatter, so it prints a canonical form rather than the
+one you wrote:
+
+| input | jaq-lite | jq |
+|---|---|---|
+| `1e2` | `1e2` | `1E+2` |
+| `0.1e-5` | `0.1e-5` | `0.000001` |
+| `1e1000` | `1e1000` | `1E+1000` |
+
+Matching jq would mean implementing decimal canonicalisation in order to return
+a less faithful answer, so the original text is kept instead.
+
+**A stream's exit status accounts for every document, not just the last.** A
+failure followed by a success exits 0 under jq, which hides it from a script
+running under `set -e`:
+
+    $ printf '1 {"a":2}' | jq -c .a
+    2
+    wsl : jq: error (at <stdin>:1): Cannot index number with string "a"
+    At D:\zero-dep-reference\_jaq-lite-prep\patch23.ps1:70 char:49
+    + ... $json, $filter) { $o = ($json | wsl --exec jq -c $filter 2>&1); $scri ...
+    +                                     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        + CategoryInfo          : NotSpecified: (jq: error (at <...with string "a":String) [], RemoteExcept
+       ion
+        + FullyQualifiedErrorId : NativeCommandError
+    [exit 0]
+
+    $ printf '1 {"a":2}' | jaq-lite -c .a
+    jaq-lite.exe : jaq-lite: <stdin>: Cannot index number with string "a"
+    At D:\zero-dep-reference\_jaq-lite-prep\patch23.ps1:69 char:47
+    + ... n Ours($json, $filter) { $o = ($json | & $exe -c $filter 2>&1); $scri ...
+    +                                            ~~~~~~~~~~~~~~~~~~~~~~
+        + CategoryInfo          : NotSpecified: (jaq-lite: <stdi...with string "a":String) [], RemoteExcept
+       ion
+        + FullyQualifiedErrorId : NativeCommandError
+    
+    2
+    [exit 5]
+
+Where the input is malformed, the reported position is the byte that is wrong
+rather than the end of the token:
+
+    $ printf '{1:2}' | jq .
+    wsl : jq: parse error: Object keys must be strings at line 1, column 3
+    At D:\zero-dep-reference\_jaq-lite-prep\patch23.ps1:70 char:49
+    + ... $json, $filter) { $o = ($json | wsl --exec jq -c $filter 2>&1); $scri ...
+    +                                     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        + CategoryInfo          : NotSpecified: (jq: parse error...ine 1, column 3:String) [], RemoteExcept
+       ion
+        + FullyQualifiedErrorId : NativeCommandError
+
+    $ printf '{1:2}' | jaq-lite .
+    jaq-lite.exe : jaq-lite: <stdin>: line 1, column 2: expected a string as the object key
+    At D:\zero-dep-reference\_jaq-lite-prep\patch23.ps1:69 char:47
+    + ... n Ours($json, $filter) { $o = ($json | & $exe -c $filter 2>&1); $scri ...
+    +                                            ~~~~~~~~~~~~~~~~~~~~~~
+        + CategoryInfo          : NotSpecified: (jaq-lite: <stdi... the object key:String) [], RemoteExcept
+       ion
+        + FullyQualifiedErrorId : NativeCommandError
+
+jq is also more permissive than RFC 8259 allows: it accepts `inf`, `NaN`, `+1`,
+`.5`, `5.`, `01`, `00`, `1.` and `0.` at exit 0. This project rejects all nine,
+which is a large part of what the rejection score below measures.
 
 ## Conformance
 
-Scored against the JSONTestSuite corpus: 95 documents that must parse, 188 that
-must be rejected, and 35 whose behaviour is implementation-defined and for which
-this project publishes a decision and a reason for each one.
+Scored on every run against the vendored JSONTestSuite corpus, printed by the
+harness itself:
+
+    RFC 8259 conformance -- JSONTestSuite 1ef36fa, 318 files
+      y_  must accept  : 95/95
+      n_  must reject  : 188/188
+      i_  our choice   : 10 accepted, 25 rejected, of 35 (implementation-defined)
+
+95 documents that must parse, 188 that must be rejected, and 35 that RFC 8259
+leaves to the implementation. The first two numbers are asserted as floors, so a
+regression fails a test rather than quietly lowering a number in this file. For
+the third group a count would prove little, since a different ten accepted would
+print the same line, so the decision taken on each file is recorded with its
+reason in `tests/i_decisions.tsv`.
 
 ## Design notes
 
