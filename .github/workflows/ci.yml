@@ -1,0 +1,67 @@
+name: ci
+
+# The gate a judge can click. It runs the same five commands that guard every
+# local commit, plus the dependency proof this project exists to make.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  gate:
+    name: gate
+    runs-on: ubuntu-latest
+    steps:
+      # actions/checkout is the only action here. A project whose whole claim is
+      # that it has no dependencies should not reach into the marketplace to
+      # test itself, so there is no cache action and no toolchain action:
+      # rustup is already on the runner and everything else is cargo.
+      - uses: actions/checkout@v4
+
+      - name: Pin the toolchain to the version Cargo.toml names
+        run: |
+          pin="$(sed -n 's/^rust-version = "\(.*\)"$/\1/p' Cargo.toml)"
+          echo "Cargo.toml pins rust $pin"
+          test "$pin" = "1.98.0"
+          rustup toolchain install "$pin" --profile minimal --component clippy --component rustfmt
+          rustup default "$pin"
+          rustc --version
+          cargo --version
+
+      - name: The dependency graph is a single node
+        run: |
+          packages="$(grep -c '^\[\[package\]\]' Cargo.lock)"
+          echo "Cargo.lock declares $packages package(s)"
+          test "$packages" -eq 1
+          cargo tree
+          test "$(cargo tree | grep -c .)" -eq 1
+      - name: Formatting
+        run: cargo fmt --all -- --check
+
+      - name: Clippy, warnings denied
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Documentation, warnings denied
+        run: cargo doc --no-deps
+        env:
+          RUSTDOCFLAGS: -D warnings
+
+      # The conformance floors are raised to the exact size of the vendored
+      # corpus. The committed constants are a hard minimum the variables cannot
+      # lower, so this tightens the check: a fixture that goes missing becomes a
+      # red run rather than a quieter pass over a smaller set.
+      - name: Tests, with the conformance floors tightened
+        run: cargo test
+        env:
+          JAQ_Y_FLOOR: "95"
+          JAQ_N_FLOOR: "188"
+
+      - name: Release build, offline and against the committed lockfile
+        run: cargo build --release --offline --locked

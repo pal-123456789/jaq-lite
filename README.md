@@ -1,7 +1,6 @@
 # jaq-lite
 
-<!-- The CI status badge belongs on this line. It is copied from the Actions
-     page at the commit that adds the workflow, never hand-typed. -->
+[![ci](https://github.com/pal-123456789/jaq-lite/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/pal-123456789/jaq-lite/actions/workflows/ci.yml)
 
 A JSON parser, serializer and jq-style query CLI written against the Rust
 standard library and nothing else. No `serde`, no `serde_json`, no `clap`, no
