@@ -34,7 +34,7 @@ const ENTRIES: usize = 17;
 /// How many entries read `shipped`. A floor in the same sense as the conformance
 /// floors: flipping an entry raises it and nothing may lower it, so a status
 /// quietly going back to `planned` fails here.
-const SHIPPED_FLOOR: usize = 16;
+const SHIPPED_FLOOR: usize = 17;
 
 /// The one file allowed to build a `Number`. This is the substance of entry 7.
 const SYNTHESIS_SITE: &str = "lexer.rs";

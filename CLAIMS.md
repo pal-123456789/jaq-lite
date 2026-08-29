@@ -23,10 +23,12 @@ row says otherwise.
 | 11 | Every malformed document is rejected | the same run | `n_  must reject  : 188/188` |
 | 12 | Each implementation-defined case has a recorded decision | `cargo test --test conformance` | `tests/i_decisions.tsv`, 35 rows, 10 accept, 25 reject |
 | 13 | The release build needs no network and no lockfile rewrite | `cargo build --release --offline --locked` | succeeds; captured in `deps-proof.txt` |
-| 14 | The suite is green | `cargo test` | 87 passing, 0 failing |
+| 14 | The suite is green | `cargo test` | 152 passing, 0 failing, summed across every target |
 | 15 | The jq comparison is against a real jq | `wsl --exec jq --version` | `jq-1.8.1` |
 | 16 | jq re-renders numbers where this project preserves them | `jq -c . <<< 1e2` | `1E+2` against `1e2` here |
 | 17 | A stream with one failing document exits non-zero here | `jaq-lite -c .a <<< '1 {"a":2}'` | exit 5, where jq exits 0 |
+| 18 | The throughput figures in the README are what the test prints | `cargo test --release --test throughput -- --nocapture --test-threads=1` | parse 24.5 MiB/s, serialize 201.2 MiB/s over 1196671 bytes |
+| 19 | A document over a megabyte survives parse and to_string identically | `cargo test --test throughput` | 1196671 bytes in, the reparsed value identical |
 
 Row 9 was corrected on 2026-08-29. It recorded a binary that printed its own
 version, which stopped being true the moment the CLI learned to take arguments.
@@ -34,5 +36,9 @@ This ledger's rule is that a row which no longer reproduces is a bug, so it was
 re-measured rather than deleted, and the correction is noted rather than made
 quietly.
 
-Rows for round-trip fidelity, the reproducible build and performance are added as
-those become measurable.
+Row 14 was re-measured on 2026-08-29 under the same rule. It recorded a suite of
+87 tests, which stopped being true sixty-five tests later, and a row that no
+longer reproduces is a bug however small the number. Performance and round-trip
+fidelity became measurable in commit 46 and are rows 18 and 19. The one claim
+still unrecorded here is the reproducible build, which waits on the hash
+comparison in CI having run twice against the same commit.

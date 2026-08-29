@@ -99,12 +99,23 @@ that refuses to flip an entry it cannot evidence. An entry that still says
     the same function, so a message and its caret cannot disagree.
     *Where:* `src/diag.rs`, `src/query.rs` · *Status:* shipped
 
-11. **Normally:** `criterion`. **Instead:** a single `std::time::Instant`
-    measurement around a fixed workload.
-    Honest about scope: there are no percentiles, no outlier rejection and no
-    statistical modelling. A percentile harness was planned and dropped, so
-    the README quotes one measured figure rather than implying a distribution.
-    *Where:* recorded in `README.md` and `CLAIMS.md` · *Status:* planned
+11. **Normally:** `criterion`. **Instead:** one `std::time::Instant` around one
+    workload, in `tests/throughput.rs`: 8000 records and rather more than a
+    megabyte, built by the test itself so that the bytes are the same on every
+    machine, timed for parsing and for serializing and reported in MiB/s.
+    Honest about scope, because this is not a smaller `criterion`. There are no
+    percentiles, no outlier rejection, no warm-up policy and no verdict on whether
+    two figures differ. Two things a harness cannot do without are here, and both
+    come from the standard library: `std::hint::black_box`, without which an
+    optimized build may delete a parse whose value is dropped unread, and a timed
+    region that includes that drop, because a parse whose result is leaked is not
+    a parse anyone performs.
+    A floor is asserted and the figure never is: 1 MiB/s in a debug build, 20 in a
+    release build, raisable through the environment and lowerable by nothing, the
+    same idiom as the conformance floors. The figures quoted in `README.md` and
+    `CLAIMS.md` are substituted from the output of the run that produced them
+    rather than typed in by hand, which is the safeguard entry 7 did without.
+    *Where:* `tests/throughput.rs`, `README.md`, `CLAIMS.md` · *Status:* shipped
 
 12. **Normally:** `insta`. **Instead:** a recorded file, compared on every run,
     with an environment variable that rewrites it.

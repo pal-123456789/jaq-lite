@@ -212,6 +212,34 @@ the third group a count would prove little, since a different ten accepted would
 print the same line, so the decision taken on each file is recorded with its
 reason in `tests/i_decisions.tsv`.
 
+## Speed
+
+    PARSE:     24.5 MiB/s
+    SERIALIZE: 201.2 MiB/s
+
+Measured by `tests/throughput.rs` over a document of 1196671 bytes that the test
+builds for itself, on AMD Ryzen 5 4600H with Radeon Graphics, Ubuntu on WSL2.
+
+The loop is bounded by time rather than by a round count, so the same file yields
+a usable sample in a debug build and in a release build. Both figures above are
+substituted into this file out of the output of the run that produced them, so
+the number here is the number the machine printed:
+
+    cargo test --release --test throughput -- --nocapture --test-threads=1
+
+There are no percentiles here, no outlier rejection and no statistical comparison
+between runs. `criterion` is the crate that provides those, and what replaced it
+is one `std::time::Instant` rather than a smaller version of that crate; the
+difference is spelled out in [STDLIB.md](STDLIB.md). What the test asserts is a
+floor and never the figure -- 20 MiB/s in a release build, 1 in a debug build,
+raisable through `JAQ_PARSE_FLOOR` and `JAQ_SERIALIZE_FLOOR` and lowerable by
+nothing -- so a regression that changes the shape of the algorithm fails a test,
+while an unlucky sample on a busy machine does not.
+
+The document is built by the test rather than read from `tests/fixtures`, because
+the 95 corpus documents that must parse total 1190 bytes between them: timing
+those would measure the cost of calling a function 95 times.
+
 ## Design notes
 
 Filled in as the modules land.

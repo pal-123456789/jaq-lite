@@ -814,3 +814,70 @@ what a claim held up by prose costs: it can be checked only by a person, and onl
 if that person looks. In both cases the code was right and the sentence about it
 was wrong, which is the one version of this defect a test suite cannot notice on
 its own.
+
+## A figure, and the crate that would have given it error bars
+
+Entry 11 of `STDLIB.md` said `criterion` had been replaced by a single
+`std::time::Instant` measurement around a fixed workload, recorded in `README.md`
+and `CLAIMS.md`. `grep -rln Instant src tests scripts` returned nothing and
+neither file carried a figure. The status field read `planned`, which was correct
+and is the second time in two commits that field has been the thing holding the
+document up. This commit writes the measurement rather than flipping the field.
+
+The obvious workload is the vendored corpus, and it is the wrong one. The 95
+documents that must parse total 1190 bytes between them, an average of twelve
+bytes each, so a loop over them measures the cost of calling a function ninety-five
+times and reports the answer in MiB/s as though it meant something. So
+`tests/throughput.rs` builds its own document: 8000 records, rather more than a
+megabyte, every branch of the value model in every record -- objects, arrays,
+three spellings of number, an escaped quote, a `\u` escape, a control-character
+escape, `true` and `null`. There is no random number generator and nothing read
+from the environment, so the bytes are the same on every machine, and the first
+test asserts that by building the document twice and comparing. That test also
+round-trips the whole megabyte through `parse` and `to_string` and requires the
+reparsed value to be identical, which is a fidelity check at a scale the unit
+tests do not reach.
+
+What `criterion` does that this does not is worth naming rather than leaving for a
+reader to discover: percentiles, outlier rejection, a warm-up policy, statistical
+comparison between runs, and a verdict on whether two figures differ. None of that
+is here. Two things it does are not optional, though, and both are in the standard
+library. `std::hint::black_box` stands between the optimizer and a result that is
+otherwise dead, because a parse whose value is dropped unread can legally be
+deleted outright and the figure would then be a lie in exactly the build a reader
+cares about. And the timed region includes that drop, because a parse whose result
+is leaked is not a parse anyone performs.
+
+The loop is bounded by time rather than by a round count -- 300 ms, with a ceiling
+on rounds so a fast machine still finishes -- so one source file yields a usable
+sample in an unoptimized build and in an optimized one. What is asserted is a
+floor and never the figure: 1 MiB/s in a debug build, 20 in a release build,
+raisable through the environment and lowerable by nothing, the same idiom as the
+conformance floors. A floor catches the regression that changes the shape of the
+algorithm. Asserting a figure would fail on a busy laptop and prove nothing on a
+fast one.
+
+The figure in `README.md` is not typed in. The patch script runs the release
+measurement, reads the printed line out of that run's own log, and substitutes it
+into the two documents, which then say what the machine said. That is a direct
+answer to how entry 7 went wrong: a figure measured somewhere else was typed into
+a document by hand, and a typed figure has no owner. A substituted one cannot be
+older than the run that produced it.
+
+A second ledger row failed the same audit. Row 14 of `CLAIMS.md` claimed the suite
+was green at "87 passing, 0 failing", which it was when it was written and has not
+been for sixty-five tests. The ledger's stated rule is that a row which no longer
+reproduces is a bug rather than a rounding error, so it was re-measured, and
+re-measured by the script from the same log rather than retyped. This is the third
+sentence in two days that outlived the code it described, after the duplicate-key
+comment and entry 7. All three were found by reading. The pattern is now clear
+enough to name: this project's defects are not in its code, they are in its prose
+about its code, and the only durable fix is to make the prose read the code.
+
+With entry 11 measured, `STDLIB.md` has seventeen entries, seventeen shipped and
+none planned, and `tests/claims.rs` raises its floor to match, so a status quietly
+going back to `planned` now fails a test. What that does not mean is that every
+entry is accurate. It means every entry names code that exists and files that
+exist, which is the part a program can check. Whether an entry describes what that
+code actually does is still a reader's job, and `tests/claims.rs` says so in its
+own module doc.
