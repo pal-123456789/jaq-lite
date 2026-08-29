@@ -28,7 +28,7 @@ that refuses to flip an entry it cannot evidence. An entry that still says
 3. **Normally:** `rand`. **Instead:** SplitMix64 in fourteen lines.
    Deterministic by construction, so a property-test failure replays exactly
    from its seed instead of being irreproducible.
-   *Where:* `tests/roundtrip_fuzz.rs` · *Status:* planned
+   *Where:* `tests/roundtrip_fuzz.rs` · *Status:* shipped
 
 4. **Normally:** `proptest` or `quickcheck`. **Instead:** a hand-written value
    generator driven by the SplitMix64 above.
@@ -125,7 +125,7 @@ that refuses to flip an entry it cannot evidence. An entry that still says
     the first differing byte offset with the surrounding context.
     For byte-exact round-trip failures, the offset of the first difference is
     more useful than a coloured diff of two long lines.
-    *Where:* `tests/roundtrip_fuzz.rs` · *Status:* planned
+    *Where:* `tests/roundtrip_fuzz.rs` · *Status:* shipped
 
 15. **Normally:** `jq` itself, invoked as an external binary. **Instead:** an
     in-process query engine, so the tool shells out to nothing.

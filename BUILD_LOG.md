@@ -593,3 +593,80 @@ about the next run, and no number of repetitions turns that into an argument. Th
 only durable answer is to remove the timing dependence and then to add a test
 that makes the previously lucky path certain. A flaky test is worse than a failing
 one, because it spends its failures on somebody else's commit.
+
+## A generator that cannot fail is a generator that proves nothing
+
+`tests/roundtrip_fuzz.rs` retires three crates at once, and the middle one is the
+only one worth an explanation. SplitMix64 replaces `rand` in nine lines. A value
+generator replaces `proptest`. An offset and a byte window replace
+`pretty_assertions`. The first and third are substitutions of a small amount of
+code for a dependency and there is nothing to say about them. The second is not,
+because `proptest` does something this file does not do, and saying so plainly is
+worth more than a green tick.
+
+What `proptest` adds is a shrinker. When a property fails it searches for the
+smallest input that still fails, and that search is most of what the library is
+for. There is none here and there will not be one: it was scoped and dropped
+rather than half-built. What stands in for it is that every value comes from its
+own seed, every failure prints that seed, and `a_seed_reproduces_its_value_exactly`
+asserts the seed is enough to get the value back. Minimising a counterexample is
+therefore a manual step rather than an automatic one, which is a real cost. It is
+not guesswork, which would be a different and much larger one.
+
+The bigger hazard in a hand-written generator is not bias. It is emptiness. A
+generator that emitted `null` five hundred times would satisfy every property in
+this file, and the file would report six passing tests while having exercised one
+variant. So generation keeps a census of what it built and which awkward things
+it reached, and `the_generator_is_not_vacuous` asserts eleven counts are above
+zero: all six variants, an empty container, a duplicate key, a string carrying a
+quote or a backslash, a string carrying a control byte, and a character above the
+BMP. The census is printed as well as asserted, because what a fuzzer covered is
+the first question anyone asks about one, and the honest answer is a table of
+numbers rather than an adjective.
+
+The fixture property needed a decision. Round-tripping the corpus against the
+files themselves is the strongest-sounding claim available and it is false:
+fixtures carry whitespace this tool does not reproduce, and several write a
+character as an escape that resolves to something shorter than it was written. So
+the property is a fixed point instead -- parse, serialize, parse, serialize, and
+the two serializations must match byte for byte while the two values stay
+identical by literal text rather than by numeric value. That is deliberately the
+weaker claim, and the test proves the weakening was necessary rather than
+convenient: it counts the fixtures whose compact form differs from their file and
+fails if that count is zero. Were it ever zero, the stronger property was
+available and this file chose the weaker one for no reason.
+
+One quieter result. `Value::identical` was written earlier for a test that did not
+exist yet, which is how a function becomes dead code without anyone noticing. It
+now has callers, and it is the entire reason these properties can tell `1.0` from
+`1`.
+
+A note added after the fact, because the first run of this test failed and the
+failure was not in the tool.
+
+Seed 16 built an object holding the key `b` twice. The serializer wrote all three
+members, the parser returned two, and `identical` reported a difference. The parser
+was right: `insert` in `src/parser.rs` applies last value wins, keeping the member
+at the position where the key first appeared, which is what the three `y_` fixtures
+containing duplicate keys require and what every order-preserving object model
+does. What was wrong was the doc comment on `Value::Object`, which said duplicate
+keys were retained as they appeared, and this test, which had been written
+believing it.
+
+So the generator was left alone and the property was split instead. A value the
+parser could have produced round-trips to itself; a value it could not produce
+round-trips to its projection, and projecting twice changes nothing.
+`has_duplicate_key` chooses the branch, the test fails if either branch never ran,
+and a unit test now pins the policy by reading it back out of the parser -- the
+document `{"a":1,"b":2,"a":3}` must serialize as `{"a":3,"b":2}` -- so the fact the
+property rests on is checked rather than assumed.
+
+Two things are worth keeping from that. A property test needs its generator to stay
+inside the image of the function under test, or the property is false for reasons
+that have nothing to do with a defect, and the repair is usually to weaken the
+property on the values outside rather than to stop generating them, because those
+are exactly the values the normalising path is made of. And a doc comment is not
+evidence of behaviour. This one was six words long, sat on a public type,
+contradicted the code directly beneath it in the call graph, and survived
+forty-two commits and every reading pass in this log until something mechanical
+generated a value that cared.

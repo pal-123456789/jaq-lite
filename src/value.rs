@@ -32,7 +32,13 @@ pub enum Value {
     String(String),
     /// An array, in document order.
     Array(Vec<Value>),
-    /// An object, in insertion order, duplicate keys retained as they appeared.
+    /// An object, in insertion order.
+    ///
+    /// The type can hold a repeated key; `parse` never returns one. The parser's
+    /// policy is last value wins, kept at the position where the key first
+    /// appeared -- see `insert` in `parser.rs` -- and a round-trip property in
+    /// `tests/roundtrip_fuzz.rs` rests on that. This comment claimed the opposite
+    /// until that test was written believing it.
     Object(Vec<(String, Value)>),
 }
 
