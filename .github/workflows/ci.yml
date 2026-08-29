@@ -16,8 +16,19 @@ env:
 
 jobs:
   gate:
-    name: gate
-    runs-on: ubuntu-latest
+    name: gate (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      # Both legs always run. Knowing that one platform is broken is worth more
+      # than stopping at whichever one failed first.
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    defaults:
+      run:
+        # One script body for both legs. Without this the Windows runner uses
+        # PowerShell and every sed, grep and test below stops working.
+        shell: bash
     steps:
       # actions/checkout is the only action here. A project whose whole claim is
       # that it has no dependencies should not reach into the marketplace to
