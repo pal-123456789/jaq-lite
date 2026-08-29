@@ -73,7 +73,7 @@ pub fn write<W: std::io::Write>(out: &mut W, value: &Value, style: Style) -> std
 
 /// Write `value` to `out` as JSON text, coloured the way `jq -C` colours it.
 ///
-/// With [`Paint::Never`] the bytes are exactly those [`write`] produces. That is
+/// With [`Paint::Never`] the bytes are exactly those [`write()`] produces. That is
 /// asserted rather than asserted-in-a-comment: a test strips every escape from a
 /// coloured run and requires the remainder to equal the uncoloured run.
 ///
