@@ -72,6 +72,10 @@ Colour:
   an empty NO_COLOR counts as unset. Output under -r is never coloured. Every
   one of those rules was measured against jq 1.8.1 rather than assumed.
 
+  Diagnostics go to standard error, so they follow whether standard error is a
+  terminal, not standard output. Redirecting output to a file still leaves a
+  coloured caret on the console you are watching it from.
+
 Exit codes:
   0   the filter ran
   2   a problem with the invocation, or with opening a file
@@ -99,6 +103,10 @@ struct Options {
     filter: String,
     files: Vec<String>,
     format: Format,
+    /// Whether to colour diagnostics. A separate field from `format.paint`
+    /// because it is a separate question: the two go to different streams, and
+    /// redirecting one says nothing about the other.
+    diag: Paint,
 }
 
 /// How to write each output value.
@@ -145,11 +153,12 @@ fn run() -> Result<(), Failure> {
         Ok(filter) => filter,
         Err(error) => {
             report(&error);
-            show(&jaq_lite::diag::snippet_at(
+            show(&jaq_lite::diag::snippet_at_painted(
                 options.filter.as_bytes(),
                 error.offset(),
                 error.line(),
                 error.column(),
+                options.diag,
             ));
             return Err(Failure {
                 code: EXIT_FILTER,
@@ -162,16 +171,37 @@ fn run() -> Result<(), Failure> {
 
     if options.files.is_empty() {
         let bytes = read_stdin()?;
-        emit(&mut out, &filter, &bytes, "<stdin>", options.format)?;
+        emit(
+            &mut out,
+            &filter,
+            &bytes,
+            "<stdin>",
+            options.format,
+            options.diag,
+        )?;
     } else {
         for path in &options.files {
             if path == "-" {
                 let bytes = read_stdin()?;
-                emit(&mut out, &filter, &bytes, "<stdin>", options.format)?;
+                emit(
+                    &mut out,
+                    &filter,
+                    &bytes,
+                    "<stdin>",
+                    options.format,
+                    options.diag,
+                )?;
             } else {
                 let bytes = std::fs::read(path)
                     .map_err(|error| Failure::usage(format!("{path}: {error}")))?;
-                emit(&mut out, &filter, &bytes, path, options.format)?;
+                emit(
+                    &mut out,
+                    &filter,
+                    &bytes,
+                    path,
+                    options.format,
+                    options.diag,
+                )?;
             }
         }
     }
@@ -230,18 +260,25 @@ fn parse_args(args: Vec<String>) -> Result<Option<Options>, Failure> {
         format: Format {
             style,
             raw,
-            paint: choose_paint(forced_colour, forced_monochrome),
+            paint: choose_paint(forced_colour, forced_monochrome, io::stdout().is_terminal()),
         },
+        diag: choose_paint(forced_colour, forced_monochrome, io::stderr().is_terminal()),
     }))
 }
 
 /// Decide whether to colour, in the order jq 1.8.1 was measured to decide it.
 ///
-/// `-M`, then `-C`, then `NO_COLOR`, then whether standard output is a terminal.
-/// Two of those four are invisible through a pipe and were measured on a
-/// pseudo-terminal instead: jq colours a terminal with no flag at all, and
-/// `NO_COLOR` overrides that default but does not override an explicit `-C`.
-fn choose_paint(forced_colour: bool, forced_monochrome: bool) -> Paint {
+/// `-M`, then `-C`, then `NO_COLOR`, then `is_terminal`. Two of those four are
+/// invisible through a pipe and were measured on a pseudo-terminal instead: jq
+/// colours a terminal with no flag at all, and `NO_COLOR` overrides that default
+/// but does not override an explicit `-C`.
+///
+/// The terminal answer arrives as a parameter rather than being asked for here,
+/// because it differs by stream: output goes to standard output and diagnostics go
+/// to standard error. So this is called twice, and gets two answers. The flags and
+/// `NO_COLOR` apply to both, since those are instructions about the run rather
+/// than facts about a stream.
+fn choose_paint(forced_colour: bool, forced_monochrome: bool, is_terminal: bool) -> Paint {
     if forced_monochrome {
         Paint::Never
     } else if forced_colour {
@@ -249,7 +286,7 @@ fn choose_paint(forced_colour: bool, forced_monochrome: bool) -> Paint {
         // explicit flag on the command line is a more specific instruction than
         // a variable inherited from the environment.
         Paint::Always
-    } else if no_color() || !io::stdout().is_terminal() {
+    } else if no_color() || !is_terminal {
         Paint::Never
     } else {
         Paint::Always
@@ -294,6 +331,7 @@ fn emit<W: Write>(
     bytes: &[u8],
     origin: &str,
     format: Format,
+    diag: Paint,
 ) -> Result<(), Failure> {
     let mut failed = false;
     for document in jaq_lite::parse_stream(bytes) {
@@ -304,7 +342,7 @@ fn emit<W: Write>(
                 // output before this line appears on standard error.
                 out.flush().map_err(|io_error| write_error(&io_error))?;
                 report(format!("{origin}: {error}"));
-                show(&jaq_lite::diag::snippet(bytes, &error));
+                show(&jaq_lite::diag::snippet_painted(bytes, &error, diag));
                 return Err(Failure {
                     code: EXIT_ERROR,
                     message: String::new(),

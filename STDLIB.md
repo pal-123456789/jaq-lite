@@ -160,8 +160,11 @@ that refuses to flip an entry it cannot evidence. An entry that still says
     output is a terminal -- was measured against jq 1.8.1 on a pseudo-terminal
     rather than assumed, because two of those four are invisible through a
     pipe. Piped output contains no escape bytes at all, which `tests/color.rs`
-    asserts on every run.
-    *Where:* `src/color.rs`, `src/main.rs` · *Status:* shipped
+    asserts on every run. The same table paints the caret diagnostics, with two
+    colours that are `rustc`'s rather than jq's -- jq has no caret to draw, so
+    there was nothing to measure -- and with the terminal question asked of
+    standard error instead of standard output.
+    *Where:* `src/color.rs`, `src/diag.rs`, `src/main.rs` · *Status:* shipped
 
 ---
 

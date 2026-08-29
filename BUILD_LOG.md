@@ -475,3 +475,33 @@ the suite depend on a tool Windows does not have -- so the honest statement is
 that those rows rest on the measurement above and on four branches of
 `choose_paint` being readable. Every row a pipe can observe is asserted in
 `tests/color.rs`.
+
+## Two streams, two answers
+
+Colour arrived in the previous commit deciding a single question: is standard
+output a terminal. Colouring the caret exposed that question as two.
+
+`jaq-lite . big.json > out.json` redirects output and leaves standard error on the
+console. Deciding once, from standard output, would print a monochrome caret to a
+terminal that could have shown a red one; in the opposite case, `jaq-lite . bad.json
+2> log`, it would write escape bytes into a log file. Both are wrong, and one
+decision cannot avoid both -- whether standard error is a terminal is a different
+question from whether standard output is.
+
+So `choose_paint` stopped asking and started taking the answer as a parameter. It
+is called twice, once with `io::stdout().is_terminal()` and once with
+`io::stderr().is_terminal()`. The flags and `NO_COLOR` still apply to both, because
+those are instructions about the run rather than facts about a stream. `Options`
+carries the two results in separate fields; the second is not part of `Format`,
+because a diagnostic is not an output value.
+
+The caret's colours are `rustc`'s -- bold blue gutter, bold red caret -- and not
+jq's. jq has no caret diagnostics, so unlike every other colour in this project
+these two were not measured against anything. Where measurement was impossible the
+comment says so instead of implying a comparison that never happened.
+
+One assertion carries the correctness claim: strip every SGR run out of a coloured
+snippet and what is left must equal the uncoloured one, byte for byte. That is
+checked over four malformed inputs rather than by reading the two format strings
+and trusting they agree. The ten hand-built snippet tests then keep passing
+unchanged, which is the other half of the same claim.

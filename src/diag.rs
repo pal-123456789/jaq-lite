@@ -10,6 +10,7 @@
 //! position. That is the unit [`ParseError::column`] counts in, so the caret
 //! cannot drift away from the number in the summary line printed above it.
 
+use crate::color::{Ink, Paint};
 use crate::error::ParseError;
 
 /// How many columns of the source line to show.
@@ -34,13 +35,46 @@ const ELLIPSIS: &str = "...";
 /// this is the snippet alone, and carries no trailing newline.
 #[must_use]
 pub fn snippet(input: &[u8], error: &ParseError) -> String {
-    snippet_at(input, error.offset(), error.line(), error.column())
+    snippet_painted(input, error, Paint::Never)
+}
+
+/// The same, coloured the way `rustc` colours its own: a blue gutter and a red
+/// caret.
+///
+/// Colour is a parameter rather than a decision made here, and the reason is worth
+/// stating: diagnostics go to standard error, and whether *that* is a terminal is
+/// a different question from whether standard output is. `jaq-lite . big.json >
+/// out.json` should still draw a red caret on the console it is being watched
+/// from.
+///
+/// With [`Paint::Never`] the bytes are exactly the ones [`snippet()`] produces. A
+/// test asserts that by stripping every escape from a coloured snippet and
+/// comparing what is left, rather than by reading two format strings and hoping
+/// they agree.
+#[must_use]
+pub fn snippet_painted(input: &[u8], error: &ParseError, paint: Paint) -> String {
+    snippet_at_painted(input, error.offset(), error.line(), error.column(), paint)
 }
 
 /// Render a snippet for any position in `input`, given the byte `offset` it is
 /// at and the 1-based `line` and `column` derived from that offset.
 #[must_use]
 pub fn snippet_at(input: &[u8], offset: usize, line: usize, column: usize) -> String {
+    snippet_at_painted(input, offset, line, column, Paint::Never)
+}
+
+/// The same, coloured.
+///
+/// Five parameters is one more than this wants, but the alternative is a struct
+/// that would exist only to be destructured on the first line.
+#[must_use]
+pub fn snippet_at_painted(
+    input: &[u8],
+    offset: usize,
+    line: usize,
+    column: usize,
+    paint: Paint,
+) -> String {
     let cols = columns(line_of(input, offset));
     let caret = column.saturating_sub(1).min(cols.len());
     let (from, to) = window(cols.len(), caret);
@@ -61,11 +95,18 @@ pub fn snippet_at(input: &[u8], offset: usize, line: usize, column: usize) -> St
         shown.push_str(ELLIPSIS);
     }
 
+    // Layout whitespace -- the space after each bar, and the run of spaces before
+    // the caret -- stays outside every escape run. That is the rule the serializer
+    // follows, and here it is what keeps `trim_end` working: with colour on the
+    // run has already closed before the space it would otherwise strand.
     let number = line.to_string();
     let gutter = " ".repeat(number.len());
-    let bar = format!("{gutter} |");
-    let text = format!("{number} | {shown}");
-    let mark = format!("{gutter} | {}^", " ".repeat(pad));
+    let rule = paint.open(Ink::Gutter);
+    let tip = paint.open(Ink::Caret);
+    let off = paint.close();
+    let bar = format!("{rule}{gutter} |{off}");
+    let text = format!("{rule}{number} |{off} {shown}");
+    let mark = format!("{rule}{gutter} |{off} {}{tip}^{off}", " ".repeat(pad));
     [bar.as_str(), text.trim_end(), mark.as_str()].join("\n")
 }
 
@@ -271,5 +312,65 @@ mod tests {
     fn an_empty_line_still_draws_a_caret() {
         let drawn = snippet(b"", &at(ErrorKind::EmptyInput, b"", 0));
         assert_eq!(drawn, "  |\n1 |\n  | ^");
+    }
+
+    /// The error the real parser reports for a malformed input.
+    ///
+    /// The other tests here build a `ParseError` by hand so they can aim the caret
+    /// anywhere. The two below do not care where it lands, only that colour does
+    /// not move it, so they take whatever the parser says.
+    fn first_error(input: &[u8]) -> ParseError {
+        crate::parse(input).unwrap_err()
+    }
+
+    /// Remove every SGR escape run, leaving the text they wrapped.
+    fn strip_sgr(text: &str) -> String {
+        let mut out = String::new();
+        let mut rest = text;
+        while let Some(start) = rest.find('\x1b') {
+            out.push_str(&rest[..start]);
+            let end = rest[start..].find('m').expect("an SGR run ends with m") + start;
+            rest = &rest[end + 1..];
+        }
+        out.push_str(rest);
+        out
+    }
+
+    #[test]
+    fn colour_off_is_byte_for_byte_the_uncoloured_snippet() {
+        let input = b"[1,";
+        let error = first_error(input);
+        assert_eq!(
+            snippet_painted(input, &error, Paint::Never),
+            snippet(input, &error)
+        );
+    }
+
+    #[test]
+    fn stripping_the_escapes_gives_back_the_plain_snippet() {
+        // The claim this module rests on: colour adds bytes and moves nothing.
+        for input in [&b"{1:2}"[..], &b"[\n\tx]"[..], &b"[1,"[..], &b"tru"[..]] {
+            let error = first_error(input);
+            let plain = snippet(input, &error);
+            let painted = snippet_painted(input, &error, Paint::Always);
+            assert_ne!(painted, plain, "nothing was coloured for {input:?}");
+            assert_eq!(strip_sgr(&painted), plain, "input was {input:?}");
+        }
+    }
+
+    #[test]
+    fn the_runs_land_exactly_where_they_belong() {
+        // The same hand-built case as `the_caret_lands_under_the_reported_column`,
+        // so the coloured and uncoloured expectations can be read side by side.
+        let input = b"{1:2}";
+        let error = at(ErrorKind::ExpectedObjectKey, input, 1);
+        // Two spaces before the caret run and both outside it: one belongs to the
+        // gutter's layout, the other is the indent that aims the caret.
+        let expected = concat!(
+            "\x1b[1;34m  |\x1b[0m\n",
+            "\x1b[1;34m1 |\x1b[0m {1:2}\n",
+            "\x1b[1;34m  |\x1b[0m  \x1b[1;31m^\x1b[0m",
+        );
+        assert_eq!(snippet_painted(input, &error, Paint::Always), expected);
     }
 }

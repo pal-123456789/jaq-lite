@@ -21,6 +21,11 @@
 //!
 //! An object key is coloured differently from a string value, which is the one
 //! distinction a reader is most likely to miss when reimplementing this.
+//!
+//! Two inks at the end of the table are not jq's and were not measured: the
+//! gutter and caret of a parse diagnostic. jq has no caret diagnostics, so there
+//! was nothing to compare against; those two follow `rustc`, which is the tool a
+//! reader has most likely seen this shape of error from.
 
 /// The sequence that ends a coloured run.
 ///
@@ -45,6 +50,13 @@ pub enum Ink {
     Object,
     /// An object key. `jq` gives these their own colour.
     Key,
+    /// The line number and the `|` of a diagnostic's gutter.
+    ///
+    /// Not a JSON value, and not something `jq` draws at all. See the note at the
+    /// top of this file about where the colour comes from instead.
+    Gutter,
+    /// The `^` under the character a parse error points at.
+    Caret,
 }
 
 impl Ink {
@@ -60,6 +72,11 @@ impl Ink {
             // Arrays and objects also share a code, for the same reason.
             Self::Array | Self::Object => "\x1b[1;39m",
             Self::Key => "\x1b[1;34m",
+            // Gutter shares a code with Key by coincidence rather than by
+            // meaning, which is why it is a separate variant: a change to jq's
+            // key colour should not silently move the gutter with it.
+            Self::Gutter => "\x1b[1;34m",
+            Self::Caret => "\x1b[1;31m",
         }
     }
 }
@@ -123,6 +140,8 @@ mod tests {
             Ink::Array,
             Ink::Object,
             Ink::Key,
+            Ink::Gutter,
+            Ink::Caret,
         ] {
             assert_eq!(Paint::Never.open(ink), "");
         }
@@ -144,6 +163,17 @@ mod tests {
     }
 
     #[test]
+    fn the_diagnostic_inks_follow_rustc_because_jq_has_none() {
+        // Nothing to measure these against, so they are pinned instead. A caret
+        // being red is the only reason a reader's eye lands on it; changing that
+        // by accident is a regression in the thing diagnostics exist for.
+        assert_eq!(Paint::Always.open(Ink::Gutter), "\x1b[1;34m");
+        assert_eq!(Paint::Always.open(Ink::Caret), "\x1b[1;31m");
+        assert_eq!(Paint::Never.open(Ink::Gutter), "");
+        assert_eq!(Paint::Never.open(Ink::Caret), "");
+    }
+
+    #[test]
     fn every_sequence_is_a_well_formed_sgr_run() {
         for ink in [
             Ink::Null,
@@ -153,6 +183,8 @@ mod tests {
             Ink::Array,
             Ink::Object,
             Ink::Key,
+            Ink::Gutter,
+            Ink::Caret,
         ] {
             let code = Paint::Always.open(ink);
             assert!(code.starts_with("\x1b["), "{code:?} does not open an SGR");
