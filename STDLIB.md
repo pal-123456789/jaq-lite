@@ -36,7 +36,7 @@ that refuses to flip an entry it cannot evidence. An entry that still says
    minimised by hand and the minimised input is recorded in the test. An
    automatic shrinker was scoped and deliberately dropped for time rather than
    half-built.
-   *Where:* `tests/roundtrip_fuzz.rs`, `tests/mutation_fuzz.rs` · *Status:* planned
+   *Where:* `tests/roundtrip_fuzz.rs`, `tests/mutation_fuzz.rs` · *Status:* shipped
 
 5. **Normally:** `thiserror` or `anyhow`. **Instead:** `#[derive(Debug)]`, a
    manual `Display` impl, and `impl std::error::Error`.

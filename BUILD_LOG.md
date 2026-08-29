@@ -670,3 +670,72 @@ evidence of behaviour. This one was six words long, sat on a public type,
 contradicted the code directly beneath it in the call graph, and survived
 forty-two commits and every reading pass in this log until something mechanical
 generated a value that cared.
+
+## Two answers, and the input nobody chose
+
+The corpus is 318 documents somebody wrote on purpose, each with a verdict
+attached. That is a strong test of the cases a person thought of. It is a weak
+test of the cases nobody did, and a parser's worst failures live there: an index
+that runs one past the end of a truncated escape, a length read out of a document
+that no longer contains it, a position reported for a line that was cut away.
+
+`tests/mutation_fuzz.rs` takes the ninety-five fixtures that must parse and
+damages them eight ways each -- a bit flipped, a byte replaced with one that means
+something to a JSON parser, the document cut short, a byte inserted, a byte
+dropped, a run copied -- and asks for an answer about all 760. None of those has
+an expected verdict. The claim is only that there is an answer: `Ok` or `Err`,
+never a panic, never a hang, never a position that cannot be pointed at. That is a
+weaker claim than conformance and a much harder one to satisfy by accident.
+
+Three details are the whole value of the file.
+
+The generator is seeded from each fixture's position in a **sorted** listing, so
+the 760 documents are the same 760 on every machine. `read_dir` gives filename
+order on NTFS and something close to hash order on ext4; without the sort, a
+failure found on a laptop would not reproduce in CI, and the log entry describing
+it would be useless. The sort is a no-op locally and load-bearing in the one place
+a reader might click.
+
+The answer is taken through `std::panic::catch_unwind`. A panic in a `#[test]`
+already fails it, but the report names a line in the parser rather than the input
+that reached it, and one loop with 760 iterations makes that the only fact worth
+having. Catching it lets the failure name the fixture, the round, the kind of
+damage, and print the bytes ASCII-escaped so they survive a CI log verbatim.
+`Cargo.toml` sets no `panic` key, so unwinding is on and this works; if that ever
+changes, this file is one of the things that changes with it.
+
+The rejection is checked, not just counted. The reported offset has to lie inside
+the input: `locate` clamps a wild offset and would hide one, while the caret
+renderer slices at it and would not, so the assertion belongs on the offset rather
+than on the line and column it produced. The reported line has to be one more than
+the number of newlines before that offset. And the reported column has to leave
+the caret on the line it points at -- at a character of that line, or the one
+position past its end -- which is the renderer's precondition rather than a second
+implementation of `locate`. Restating a function inside its own test proves
+nothing; stating what its caller needs from it proves something. A diagnostic that
+points at an impossible position is the likeliest thing in this parser to be
+wrong, because no fixture is shaped to provoke it and every fixture is
+hand-written enough to avoid it.
+
+Two smaller decisions. Every mutant that *parses* is held to the round-trip
+property as well, so the accepting path gets tested by documents no one designed;
+the test fails if no mutant parsed at all, and fails if none was rejected, since
+either would mean it had stopped measuring anything. And SplitMix64 is duplicated
+from `tests/roundtrip_fuzz.rs` rather than shared: every file under `tests/` is its
+own crate, sharing means a `common` module, and an item in such a module that one
+importer does not use is a warning, and a warning is a failed gate here. The
+duplicate carries the same published test vector, so a change to either copy that
+breaks the algorithm fails a test rather than silently producing a different
+corpus. Duplication with a shared oracle is cheaper than a module that has to stay
+exactly as wide as its narrowest user.
+
+Nothing was found. Eight hundred and six damaged or truncated documents went in
+and every one came back as an answer, with every rejection pointing at a position
+inside the document it was handed. It is worth saying plainly that this file has
+not yet paid for itself the way the round-trip generator did on its first run, and
+worth saying just as plainly why it is still here: a test that finds nothing today
+is a claim under continuous check, and the alternative to a claim under check is a
+promise. The way this file becomes worthless is not by failing to find a defect --
+it is by becoming unable to find one, which is why it asserts that both answers
+occurred and that all six kinds of damage happened, and why those counts are
+printed where a reader can see them rather than kept inside a passing test.
