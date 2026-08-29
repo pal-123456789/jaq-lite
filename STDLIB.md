@@ -82,11 +82,12 @@ that refuses to flip an entry it cannot evidence. An entry that still says
    *Where:* `src/error.rs`, `src/lib.rs` · *Status:* shipped
 
 10. **Normally:** `codespan-reporting`, `ariadne` or `miette`. **Instead:** a
-    caret renderer of roughly fifty lines, shared by the JSON parser and the
-    query parser.
-    Line, column, the source line, a caret under the offending byte, and a
+    caret renderer of 160 lines in `src/diag.rs`, tests aside.
+    Line, column, the source line, a caret under the offending character, and a
     reason. That is the whole feature those crates are usually pulled in for.
-    *Where:* `src/diag.rs` · *Status:* planned
+    What they carry besides it is multi-span layout and a Unicode display-width
+    table, and neither is needed to point at one position in one line.
+    *Where:* `src/diag.rs` · *Status:* shipped
 
 11. **Normally:** `criterion`. **Instead:** a single `std::time::Instant`
     measurement around a fixed workload.
@@ -126,14 +127,19 @@ that refuses to flip an entry it cannot evidence. An entry that still says
     and is not required to run this tool.
     *Where:* `src/query.rs` · *Status:* shipped
 
-16. **Normally:** `unicode-segmentation`. **Instead:** `char` iteration where
-    character semantics genuinely matter, which is column counting for
-    diagnostics, and byte iteration everywhere else.
+16. **Normally:** `unicode-segmentation`. **Instead:** counting UTF-8 lead
+    bytes, which is the unit a column number is already in, and byte iteration
+    everywhere else.
+    A column is one non-continuation byte together with the continuation bytes
+    after it. That is deliberately not `char` iteration: a position has to be
+    reportable for input that is not valid UTF-8 at all, and a `char_indices`
+    walk cannot reach that case. Grapheme clusters would be a third unit again,
+    and a caret under one code point is what `rustc` prints.
     Also the reason `char::is_whitespace()` is never used to skip JSON
     whitespace: Unicode `White_Space` is a much larger set than the four bytes
     RFC 8259 permits, and six fixtures in the corpus exist to catch exactly
     that mistake.
-    *Where:* `src/diag.rs`, `src/lexer.rs` · *Status:* planned
+    *Where:* `src/error.rs`, `src/diag.rs`, `src/lexer.rs` · *Status:* shipped
 
 17. **Normally:** `owo-colors` or `colored` for ANSI output, plus
     `is-terminal` or `atty` to decide whether to emit it. **Instead:** a short

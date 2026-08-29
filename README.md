@@ -90,9 +90,44 @@ fails on a document, and 0 otherwise.
 
 ## Diagnostics
 
-jaq-lite reports a parse error with the offending line, a caret under the exact
-byte, and the reason, in the style rustc uses. Example goes here once the
-renderer exists.
+A parse failure prints the line, the column and the reason, then the offending
+source line with a caret under the character that was wrong -- the shape `rustc`
+uses. The first line is the whole message when it is read by a program; the
+snippet under it is for the person who has to fix the file.
+
+    $ printf '{1:2}' | jaq-lite .
+    jaq-lite: <stdin>: line 1, column 2: expected a string as the object key
+      |
+    1 | {1:2}
+      |  ^
+    [exit 5]
+
+    $ jaq-lite . broken.json
+    jaq-lite: broken.json: line 3, column 8: unexpected `t`
+      |
+    3 |   "b": tru
+      |        ^
+    [exit 5]
+
+The renderer works on the raw input bytes rather than on a `str`, because input
+that is not valid UTF-8 is itself one of the failures it has to draw. An invalid
+byte becomes one replacement character, so the caret still lands exactly where
+the column number says it does.
+
+    $ jaq-lite . broken.json
+    jaq-lite: broken.json: line 1, column 4: invalid UTF-8 after 3 valid bytes
+      |
+    1 | ["a�"]
+      |    ^
+    [exit 5]
+
+A column is one non-continuation byte together with the continuation bytes after
+it, which is the same unit the column number counts in, so a multi-byte
+character earlier in the line cannot shift the caret. A tab is expanded to four
+spaces before the caret is placed, or the caret would sit three places short of
+its character. A long line is cut around the caret with an ellipsis on either
+side: minified JSON is one line and can be megabytes, and a failure late in a
+large document must not print the document to standard error.
 
 ## jq compatibility
 
@@ -169,7 +204,18 @@ Filled in as the modules land.
 
 ## Honest limits
 
-Stated plainly rather than omitted. Filled in as they are measured.
+Stated plainly rather than omitted.
+
+The caret counts one column per character, not one per terminal cell. A
+character a terminal draws two cells wide -- most CJK, and most emoji -- shifts
+the caret one cell to the left of its target for each such character earlier on
+the same line. Correcting for that needs the Unicode East Asian Width table,
+which is the larger half of what a diagnostics crate carries, and the line and
+column in the message above the snippet are right either way.
+
+The nesting limit is 128 and is not configurable: there is no `--max-depth`. The
+limit is what turns deeply nested input into a diagnostic instead of a stack
+overflow, and 128 is far past anything written by hand.
 
 ## Standard library substitutions
 
