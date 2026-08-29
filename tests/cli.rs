@@ -211,3 +211,55 @@ fn a_missing_file_is_named_in_the_error() {
         result.stderr
     );
 }
+
+#[test]
+fn a_stream_of_documents_is_read_the_way_jq_reads_one() {
+    // Newline-delimited JSON is the common case, but jq does not require the
+    // newline: whitespace between documents is enough, and none at all is too.
+    assert_eq!(run(&["-c", "."], "1 2").stdout, "1\n2\n");
+    assert_eq!(run(&["-c", "."], "1\n2\n").stdout, "1\n2\n");
+    assert_eq!(run(&["-c", ".a"], r#"{"a":1}{"a":2}"#).stdout, "1\n2\n");
+    assert_eq!(run(&["-c", ".[]"], "[1,2] [3]").stdout, "1\n2\n3\n");
+}
+
+#[test]
+fn an_empty_stream_says_nothing_and_exits_zero() {
+    // One empty input is an error, because there is no document in it. A stream
+    // of no documents is simply empty, which is what an empty file is.
+    let got = run(&["-c", "."], "   \n\t\n");
+    assert_eq!(got.stdout, "");
+    assert_eq!(got.stderr, "");
+    assert_eq!(got.code, Some(0));
+}
+
+#[test]
+fn output_before_a_syntax_error_is_still_written() {
+    // Writing as documents are parsed, rather than collecting first, is what
+    // makes this true. It is also what jq does.
+    let got = run(&["-c", "."], "1 2 [");
+    assert_eq!(got.stdout, "1\n2\n");
+    assert_eq!(got.code, Some(5));
+}
+
+#[test]
+fn a_document_the_filter_cannot_handle_does_not_stop_the_stream() {
+    let got = run(&["-c", ".a"], r#"1 {"a":2}"#);
+    assert_eq!(got.stdout, "2\n");
+    assert_eq!(got.code, Some(5));
+    assert!(
+        got.stderr
+            .contains(r#"Cannot index number with string "a""#),
+        "{}",
+        got.stderr
+    );
+}
+
+#[test]
+fn every_failing_document_is_named_not_only_the_first() {
+    // jq reports the status of the last document only, so this exits 0 there
+    // and the failures disappear from a script running under `set -e`.
+    let got = run(&["-c", ".a"], "1 2 3");
+    let lines: Vec<&str> = got.stderr.lines().collect();
+    assert_eq!(lines.len(), 3, "{lines:?}");
+    assert_eq!(got.code, Some(5));
+}

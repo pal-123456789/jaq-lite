@@ -5,7 +5,7 @@
 
 #![forbid(unsafe_code)]
 
-use jaq_lite::{Filter, Style, parse};
+use jaq_lite::{Filter, Style};
 use std::io::{self, Read, Write};
 use std::process::ExitCode;
 
@@ -25,6 +25,18 @@ const EXIT_ERROR: u8 = 5;
 
 /// A closed pipe, which is not a failure at all. See `write_error`.
 const EXIT_FINE: u8 = 0;
+
+/// The name this tool answers to, in front of everything it says on standard
+/// error.
+const BINARY: &str = "jaq-lite";
+
+/// Report a problem on standard error, prefixed the way every other line is.
+///
+/// One stream can produce several problems, so reporting cannot wait for the
+/// process to exit carrying a single message.
+fn report(message: impl std::fmt::Display) {
+    eprintln!("{BINARY}: {message}");
+}
 
 const USAGE: &str = "\
 jaq-lite -- a JSON processor with no dependencies
@@ -85,9 +97,14 @@ fn main() -> ExitCode {
             if failure.code == EXIT_FINE {
                 return ExitCode::SUCCESS;
             }
-            eprintln!("jaq-lite: {}", failure.message);
+            // A failure that already reported itself carries no message. That is
+            // how a stream with several bad documents names each one as it is
+            // reached and still exits once, with one code.
+            if !failure.message.is_empty() {
+                report(&failure.message);
+            }
             if failure.code == EXIT_USAGE {
-                eprintln!("jaq-lite: run `jaq-lite --help` for usage");
+                report("run `jaq-lite --help` for usage");
             }
             ExitCode::from(failure.code)
         }
@@ -172,13 +189,20 @@ fn read_stdin() -> Result<Vec<u8>, Failure> {
     Ok(bytes)
 }
 
-/// Run the filter over one document and write every output, one per line.
+/// Run the filter over every document in one input, writing as it goes.
 ///
 /// Bytes rather than text, so that a file which is not valid UTF-8 is reported
 /// with a position instead of failing before parsing starts.
 ///
 /// A filter produces a stream, not a value: none for a path that misses under
-/// `?`, several for `.[]`. So this writes a loop.
+/// `?`, several for `.[]`. So this writes a loop, inside the loop over
+/// documents.
+///
+/// Output is written per document rather than collected, so everything produced
+/// before a syntax error still reaches standard output. A document the filter
+/// cannot handle is named and the stream continues: jq reports the status of
+/// the last document only, which hides an earlier failure from a script running
+/// under `set -e`.
 fn emit<W: Write>(
     out: &mut W,
     filter: &Filter,
@@ -186,17 +210,43 @@ fn emit<W: Write>(
     origin: &str,
     style: Style,
 ) -> Result<(), Failure> {
-    let value = parse(bytes).map_err(|error| Failure {
-        code: EXIT_ERROR,
-        message: format!("{origin}: {error}"),
-    })?;
-    let outputs = filter.run(&value).map_err(|error| Failure {
-        code: EXIT_ERROR,
-        message: format!("{origin}: {error}"),
-    })?;
-    for output in &outputs {
-        jaq_lite::write(out, output, style).map_err(|error| write_error(&error))?;
-        out.write_all(b"\n").map_err(|error| write_error(&error))?;
+    let mut failed = false;
+    for document in jaq_lite::parse_stream(bytes) {
+        let value = match document {
+            Ok(value) => value,
+            Err(error) => {
+                // Flush first: the documents already written belong on standard
+                // output before this line appears on standard error.
+                out.flush().map_err(|io_error| write_error(&io_error))?;
+                report(format!("{origin}: {error}"));
+                return Err(Failure {
+                    code: EXIT_ERROR,
+                    message: String::new(),
+                });
+            }
+        };
+        match filter.run(&value) {
+            Ok(outputs) => {
+                for output in &outputs {
+                    jaq_lite::write(out, output, style).map_err(|error| write_error(&error))?;
+                    out.write_all(b"\n").map_err(|error| write_error(&error))?;
+                }
+            }
+            Err(error) => {
+                out.flush().map_err(|io_error| write_error(&io_error))?;
+                report(format!("{origin}: {error}"));
+                failed = true;
+            }
+        }
+    }
+    if failed {
+        // Every failure has already been reported, so there is no message left
+        // to carry -- only the code.
+        out.flush().map_err(|io_error| write_error(&io_error))?;
+        return Err(Failure {
+            code: EXIT_ERROR,
+            message: String::new(),
+        });
     }
     Ok(())
 }
