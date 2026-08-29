@@ -1,0 +1,15 @@
+# Repository-wide: store text as LF and check it out as LF on every platform,
+# so that a Windows clone and a Linux clone are byte-identical. The
+# reproducible-build claim is verified on x86_64-unknown-linux-gnu, so this is
+# load-bearing rather than cosmetic.
+* text=auto eol=lf
+
+# Conformance fixtures are byte-exact inputs vendored from JSONTestSuite.
+# 25 of them are not valid UTF-8, several contain NUL bytes, and two are
+# 100 000 levels deep: the exact bytes ARE the test. Git must never convert
+# them, on commit, on clone, or on a CI runner.
+tests/fixtures/** -text
+
+# They are third-party data rather than our code, so they are kept out of the
+# language statistics. Provenance and upstream commit are in ATTRIBUTION.md.
+tests/fixtures/** linguist-vendored
