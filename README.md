@@ -250,6 +250,48 @@ The document is built by the test rather than read from `tests/fixtures`, becaus
 the 95 corpus documents that must parse total 1190 bytes between them: timing
 those would measure the cost of calling a function 95 times.
 
+## Reproducible build
+
+Two `cargo build --release` runs on this source produce byte-identical
+binaries on one machine, and `scripts/reproducible_build.sh` is the check
+rather than the claim. It builds the crate twice into directories whose paths
+differ in length, hashes both binaries, builds a third with the determinism
+settings inverted, and prints:
+
+    1  two builds, unequal path lengths, same hash
+    2  control with debug=2 strip=none must differ
+    3  no build path, home, rustup or cargo in it
+    4  the two sizes are equal
+
+It exits non-zero unless all four hold, so CI can gate on it, and the
+`byte-identical rebuild` job does.
+
+Assertion 2 is the one worth explaining. Two builds of one source agreeing is
+weak evidence by itself, because a build that ignored its own settings would
+agree too. The control inverts `debug` and `strip` -- the two settings that
+decide whether a binary carries facts about the machine that built it -- and
+it has to differ. A checker that cannot fail is not a checker.
+
+The unequal path lengths matter for the same reason. An earlier version of
+this harness built in `/tmp/a` and `/tmp/b`, and its control matched when it
+should have differed: an absolute path leaked into a binary shifts nothing
+downstream if the path it replaces is the same length, so the scan came back
+clean because the leak was invisible rather than absent.
+
+Determinism here comes from three keys in `[profile.release]` --
+`codegen-units = 1`, `debug = 0`, `strip = "symbols"` -- and deliberately not
+from `RUSTFLAGS`. A hash that only reproduces when the reader remembers to
+export a long environment variable is a hash that quietly stops matching, and
+a bare `cargo build --release` has to be the command that produces it.
+
+What does not travel is the number. The sha256 measured on the author's
+laptop is recorded in [BUILD_LOG.md](BUILD_LOG.md); a GitHub-hosted
+`ubuntu-latest` runner produced a different one, twice, forty minutes apart
+on two separate virtual machines. So the published constant is a function of
+the host toolchain, you should not expect to reproduce it, and nothing should
+be gated on it. What reproduces is the property above, and it has now held on
+three machines.
+
 ## Design notes
 
 The modules split along the problem rather than along a crate layout. `lexer.rs`

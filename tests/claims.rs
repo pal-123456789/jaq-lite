@@ -21,12 +21,14 @@
 //! numeral in a doc comment that has to track the `#[test]` items below it is
 //! one more sentence that can go stale, which is this file's own subject.
 //!
-//! One test here is not about `STDLIB.md` at all. `BUILD_LOG.md` publishes a
+//! Some tests here are not about `STDLIB.md` at all. `BUILD_LOG.md` publishes a
 //! sha256 a reader is invited to reproduce, and quotes the hashes the harness
-//! and two CI attempts printed. Those six numbers have to agree in a particular
-//! pattern, a digit transcribed wrong out of a CI log is exactly the error no
-//! reviewer catches, and the check costs four comparisons. So it belongs beside
-//! the others rather than in a file of its own.
+//! and two CI attempts printed; those six numbers have to agree in a particular
+//! pattern, and a digit transcribed wrong out of a CI log is exactly the error
+//! no reviewer catches. `README.md` quotes four assertion lines out of
+//! `scripts/reproducible_build.sh`, and quoted text drifts, so those phrases are
+//! required to appear in both files or the test fails in the commit that moved
+//! one of them. Both belong beside the others rather than in files of their own.
 //!
 //! What this file cannot do is said plainly rather than left implied. It cannot
 //! tell whether an entry's prose describes the code it points at; only a reader
@@ -365,4 +367,72 @@ fn the_hashes_recorded_in_the_build_log_agree() {
         &published[..8],
         &attempt_1[..8]
     );
+}
+
+/// The README's account of the reproducible build has to match the harness.
+///
+/// A README is the document most likely to be read and the least likely to be
+/// re-checked, and this section of it quotes four assertion lines out of a shell
+/// script. Quoted text drifts: the script gets an assertion reworded, the README
+/// keeps the old wording, and the file a judge actually reads is the stale one.
+/// So the four phrases are required to appear verbatim in both, which turns a
+/// rewording into a failing test in the same commit that causes it.
+///
+/// The last two checks are about a number that is deliberately absent. The
+/// section says the published sha256 belongs to the host toolchain rather than
+/// to this source, and that nothing should be gated on it; a README that then
+/// printed the constant would invite exactly the comparison the prose warns
+/// against. Asserting there is no 64-character hex token here makes that
+/// decision structural instead of a matter of remembering it.
+#[test]
+fn the_readme_quotes_the_reproducible_build_harness_verbatim() {
+    let readme = read("README.md");
+    let script = read("scripts/reproducible_build.sh");
+    let workflow = read(".github/workflows/ci.yml");
+
+    for phrase in [
+        "two builds, unequal path lengths, same hash",
+        "control with debug=2 strip=none must differ",
+        "no build path, home, rustup or cargo in it",
+        "the two sizes are equal",
+    ] {
+        assert!(
+            script.contains(phrase),
+            "scripts/reproducible_build.sh no longer prints {phrase:?}, so the README \
+             quotes an assertion this harness does not make; reword both or neither"
+        );
+        assert!(
+            readme.contains(phrase),
+            "README.md does not quote {phrase:?}, so its list of what the harness \
+             checks is shorter or differently worded than the harness itself"
+        );
+    }
+
+    assert!(
+        readme.contains("scripts/reproducible_build.sh"),
+        "the README's reproducible-build section no longer names the script, leaving \
+         the reader the claim without the command that checks it"
+    );
+    assert!(
+        readme.contains("byte-identical rebuild"),
+        "the README no longer names the CI job that runs the harness"
+    );
+    assert!(
+        workflow.contains("byte-identical rebuild"),
+        "the README names a `byte-identical rebuild` job that ci.yml does not define, \
+         so the sentence promising CI gates on the harness is false"
+    );
+
+    let hash = readme
+        .split_whitespace()
+        .find(|token| token.len() == 64 && token.bytes().all(|byte| byte.is_ascii_hexdigit()));
+    assert!(
+        hash.is_none(),
+        "README.md now publishes what looks like a sha256 ({hash:?}), but its own text \
+         says the constant is host-specific and must not be gated on. If publishing it \
+         is the new intent, delete this assertion and add a check that it equals the \
+         one in BUILD_LOG.md, so the two cannot drift"
+    );
+
+    println!("README HARNESS: 4 phrases verbatim, ci job named, no hash published");
 }

@@ -23,7 +23,7 @@ row says otherwise.
 | 11 | Every malformed document is rejected | the same run | `n_  must reject  : 188/188` |
 | 12 | Each implementation-defined case has a recorded decision | `cargo test --test conformance` | `tests/i_decisions.tsv`, 35 rows, 10 accept, 25 reject |
 | 13 | The release build needs no network and no lockfile rewrite | `cargo build --release --offline --locked` | succeeds; captured in `deps-proof.txt` |
-| 14 | The suite is green | `cargo test` | 159 passing, 0 failing, summed across every target |
+| 14 | The suite is green | `cargo test` | 160 passing, 0 failing, summed across every target |
 | 15 | The jq comparison is against a real jq | `wsl --exec jq --version` | `jq-1.8.1` |
 | 16 | jq re-renders numbers where this project preserves them | `jq -c . <<< 1e2` | `1E+2` against `1e2` here |
 | 17 | A stream with one failing document exits non-zero here | `jaq-lite -c .a <<< '1 {"a":2}'` | exit 5, where jq exits 0 |
