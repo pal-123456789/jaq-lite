@@ -22,6 +22,7 @@
 /// The crate version, read from `Cargo.toml` at compile time.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
+pub mod diag;
 pub mod error;
 pub mod value;
 

@@ -38,6 +38,14 @@ fn report(message: impl std::fmt::Display) {
     eprintln!("{BINARY}: {message}");
 }
 
+/// Print a diagnostic snippet, unprefixed.
+///
+/// The summary line above it already names the binary and the input; repeating
+/// that on the caret lines would break the alignment the snippet exists for.
+fn show(block: &str) {
+    eprintln!("{block}");
+}
+
 const USAGE: &str = "\
 jaq-lite -- a JSON processor with no dependencies
 
@@ -240,6 +248,7 @@ fn emit<W: Write>(
                 // output before this line appears on standard error.
                 out.flush().map_err(|io_error| write_error(&io_error))?;
                 report(format!("{origin}: {error}"));
+                show(&jaq_lite::diag::snippet(bytes, &error));
                 return Err(Failure {
                     code: EXIT_ERROR,
                     message: String::new(),
