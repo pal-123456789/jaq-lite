@@ -146,15 +146,22 @@ that refuses to flip an entry it cannot evidence. An entry that still says
 
 17. **Normally:** `owo-colors` or `colored` for ANSI output, plus
     `is-terminal` or `atty` to decide whether to emit it. **Instead:** a short
-    table of ANSI escape constants, with colour selected by explicit `-C` and
-    `-M` flags and suppressed by the `NO_COLOR` environment variable.
-    Worth stating rather than glossing: the standard library cannot detect
-    whether stdout is a terminal without going through `libc`, so automatic
-    detection is not available to a project under this constraint. Rather than
-    reach for a crate or guess, colour is opt-in and the limitation is
-    documented. Piped output contains no escape bytes at all, which is
-    verified by a test.
-    *Where:* `src/diag.rs`, `src/main.rs` · *Status:* planned
+    table of ANSI escape constants in `src/color.rs`, and `std::io::IsTerminal`
+    to decide, which has been stable since Rust 1.70.
+    This entry said the opposite from commit 6 to commit 38. It claimed the
+    standard library cannot detect a terminal without going through `libc`, so
+    detection was unavailable here and colour had to be opt-in. That was simply
+    wrong. The correction is left visible rather than quietly rewritten: a log
+    of what the standard library can do instead of a crate is worth less if the
+    places it got that wrong are edited out of it. `is-terminal` exists for the
+    years before 1.70 and `atty` has been unmaintained since 2021; on 1.98
+    neither is needed for one method call on `Stdout`.
+    The precedence -- `-M`, then `-C`, then `NO_COLOR`, then whether standard
+    output is a terminal -- was measured against jq 1.8.1 on a pseudo-terminal
+    rather than assumed, because two of those four are invisible through a
+    pipe. Piped output contains no escape bytes at all, which `tests/color.rs`
+    asserts on every run.
+    *Where:* `src/color.rs`, `src/main.rs` · *Status:* shipped
 
 ---
 

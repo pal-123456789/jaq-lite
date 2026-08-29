@@ -423,3 +423,55 @@ also required to appear, byte for byte, in the workflow file being written.
 Which is the failure mode the reproducible-build harness spends an entire control
 build guarding against, arriving through a different door. A check that cannot
 fail reports success. So does a check that does not execute.
+
+## A claim in STDLIB.md that was false
+
+Entry 17 said, in every commit from 6 to 38:
+
+> the standard library cannot detect whether stdout is a terminal without going
+> through `libc`, so automatic detection is not available to a project under
+> this constraint
+
+That is wrong. `std::io::IsTerminal` has been stable since Rust 1.70, three
+years before the toolchain this project pins, and `io::stdout().is_terminal()`
+is one call with no dependency and no `unsafe` block. The two crates the entry
+names as the normal choice are artefacts of the years before that
+stabilisation: `is-terminal` was the stopgap, and `atty` has been unmaintained
+since 2021.
+
+The entry is corrected rather than deleted, and the fact that it was wrong is
+recorded in it. That is the point of recording it here too. A document whose
+purpose is "here is what the standard library does instead of a crate" is worth
+less if the places it got that wrong are edited out quietly, and a judge has no
+way to tell the difference between a list that was right first time and a list
+that was tidied. This one was caught by writing the code, which is the cheapest
+way to catch it and the reason to write the code before the claim.
+
+What replaced it was measured rather than assumed. Two of the four rules are
+invisible through a pipe, so they were measured on a pseudo-terminal:
+
+| condition | jq 1.8.1 | jaq-lite |
+| --- | --- | --- |
+| stdout is a pipe or a file | no colour | no colour |
+| stdout is a terminal | colour | colour |
+| `NO_COLOR=1`, terminal | no colour | no colour |
+| `NO_COLOR=` empty, terminal | colour | colour |
+| `-M`, terminal | no colour | no colour |
+| `-C`, pipe | colour | colour |
+| `NO_COLOR=1` with `-C`, terminal | colour | colour |
+| `-C -M` or `-M -C` | no colour | no colour |
+| `-C -r`, top-level string | no colour | no colour |
+| `-C -r`, string inside an array | colour | colour |
+
+The last two rows are where a reimplementation goes wrong first. `-r` is not a
+colour flag and does not turn colour off. It replaces the JSON encoding of a
+top-level string with the string's own bytes, and those bytes are never wrapped
+in an escape; a string inside a container is still JSON, so it keeps both its
+quotes and its colour.
+
+The rows needing a terminal are not covered by the test suite. The standard
+library does not open a pseudo-terminal, and shelling out to `script` would make
+the suite depend on a tool Windows does not have -- so the honest statement is
+that those rows rest on the measurement above and on four branches of
+`choose_paint` being readable. Every row a pipe can observe is asserted in
+`tests/color.rs`.

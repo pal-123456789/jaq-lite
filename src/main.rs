@@ -5,8 +5,8 @@
 
 #![forbid(unsafe_code)]
 
-use jaq_lite::{Filter, Style};
-use std::io::{self, Read, Write};
+use jaq_lite::{Filter, Paint, Style};
+use std::io::{self, IsTerminal, Read, Write};
 use std::process::ExitCode;
 
 /// Anything the caller got wrong about the invocation, the input file, or the
@@ -57,11 +57,20 @@ standard output. With no file arguments, or with `-`, input is read from
 standard input.
 
 Options:
-  -c, --compact-output   Print with no newlines or indentation.
-  -r, --raw-output       Print a top-level string as its contents, not as JSON.
-  -h, --help             Print this help and exit.
-  -V, --version          Print the version and exit.
-  --                     Stop reading options; later arguments are positional.
+  -c, --compact-output     Print with no newlines or indentation.
+  -r, --raw-output         Print a top-level string as its contents, not as JSON.
+  -C, --color-output       Colour the output even when it is not a terminal.
+  -M, --monochrome-output  Never colour the output. Wins over -C.
+  -h, --help               Print this help and exit.
+  -V, --version            Print the version and exit.
+  --                       Stop reading options; later arguments are positional.
+
+Colour:
+  Output is coloured when standard output is a terminal and left alone when it
+  is a pipe or a file. -C forces it on, -M forces it off, and -M wins when both
+  are given. NO_COLOR in the environment turns it off unless -C is also given;
+  an empty NO_COLOR counts as unset. Output under -r is never coloured. Every
+  one of those rules was measured against jq 1.8.1 rather than assumed.
 
 Exit codes:
   0   the filter ran
@@ -89,8 +98,19 @@ impl Failure {
 struct Options {
     filter: String,
     files: Vec<String>,
+    format: Format,
+}
+
+/// How to write each output value.
+///
+/// Three knobs that always travel together, kept as one type so `emit` takes one
+/// argument for them rather than three. It was already at six parameters before
+/// colour arrived, and seven is where clippy stops being polite about it.
+#[derive(Clone, Copy)]
+struct Format {
     style: Style,
     raw: bool,
+    paint: Paint,
 }
 
 fn main() -> ExitCode {
@@ -142,30 +162,16 @@ fn run() -> Result<(), Failure> {
 
     if options.files.is_empty() {
         let bytes = read_stdin()?;
-        emit(
-            &mut out,
-            &filter,
-            &bytes,
-            "<stdin>",
-            options.style,
-            options.raw,
-        )?;
+        emit(&mut out, &filter, &bytes, "<stdin>", options.format)?;
     } else {
         for path in &options.files {
             if path == "-" {
                 let bytes = read_stdin()?;
-                emit(
-                    &mut out,
-                    &filter,
-                    &bytes,
-                    "<stdin>",
-                    options.style,
-                    options.raw,
-                )?;
+                emit(&mut out, &filter, &bytes, "<stdin>", options.format)?;
             } else {
                 let bytes = std::fs::read(path)
                     .map_err(|error| Failure::usage(format!("{path}: {error}")))?;
-                emit(&mut out, &filter, &bytes, path, options.style, options.raw)?;
+                emit(&mut out, &filter, &bytes, path, options.format)?;
             }
         }
     }
@@ -180,6 +186,10 @@ fn parse_args(args: Vec<String>) -> Result<Option<Options>, Failure> {
     let mut files: Vec<String> = Vec::new();
     let mut style = Style::Pretty;
     let mut raw = false;
+    // Two flags rather than one tri-state: -M beats -C in both orders, so `-C -M`
+    // and `-M -C` are both monochrome. Last-one-wins would get one of them wrong.
+    let mut forced_colour = false;
+    let mut forced_monochrome = false;
     let mut options_ended = false;
 
     for arg in args {
@@ -199,6 +209,10 @@ fn parse_args(args: Vec<String>) -> Result<Option<Options>, Failure> {
                 style = Style::Compact;
             } else if arg == "-r" || arg == "--raw-output" {
                 raw = true;
+            } else if arg == "-C" || arg == "--color-output" {
+                forced_colour = true;
+            } else if arg == "-M" || arg == "--monochrome-output" {
+                forced_monochrome = true;
             } else {
                 return Err(Failure::usage(format!("unknown option `{arg}`")));
             }
@@ -213,9 +227,43 @@ fn parse_args(args: Vec<String>) -> Result<Option<Options>, Failure> {
     Ok(Some(Options {
         filter,
         files,
-        style,
-        raw,
+        format: Format {
+            style,
+            raw,
+            paint: choose_paint(forced_colour, forced_monochrome),
+        },
     }))
+}
+
+/// Decide whether to colour, in the order jq 1.8.1 was measured to decide it.
+///
+/// `-M`, then `-C`, then `NO_COLOR`, then whether standard output is a terminal.
+/// Two of those four are invisible through a pipe and were measured on a
+/// pseudo-terminal instead: jq colours a terminal with no flag at all, and
+/// `NO_COLOR` overrides that default but does not override an explicit `-C`.
+fn choose_paint(forced_colour: bool, forced_monochrome: bool) -> Paint {
+    if forced_monochrome {
+        Paint::Never
+    } else if forced_colour {
+        // Above NO_COLOR deliberately: `NO_COLOR=1 jq -C .` still colours. An
+        // explicit flag on the command line is a more specific instruction than
+        // a variable inherited from the environment.
+        Paint::Always
+    } else if no_color() || !io::stdout().is_terminal() {
+        Paint::Never
+    } else {
+        Paint::Always
+    }
+}
+
+/// Whether `NO_COLOR` is set to anything other than the empty string.
+///
+/// An empty value counts as unset, which is what the convention says and what jq
+/// does: `NO_COLOR= jq .` at a terminal is still coloured. `var_os` rather than
+/// `var`, so a value that is not UTF-8 still counts as set rather than silently
+/// counting as absent.
+fn no_color() -> bool {
+    std::env::var_os("NO_COLOR").is_some_and(|value| !value.is_empty())
 }
 
 fn read_stdin() -> Result<Vec<u8>, Failure> {
@@ -245,8 +293,7 @@ fn emit<W: Write>(
     filter: &Filter,
     bytes: &[u8],
     origin: &str,
-    style: Style,
-    raw: bool,
+    format: Format,
 ) -> Result<(), Failure> {
     let mut failed = false;
     for document in jaq_lite::parse_stream(bytes) {
@@ -270,13 +317,18 @@ fn emit<W: Write>(
                     // `-r` prints a top-level string as its contents. A string
                     // inside an array or an object stays quoted, because the
                     // value being printed is the container. That is jq's rule.
+                    //
+                    // Raw output carries no colour, even under -C. Measured:
+                    // `jq -C -r .` on a bare string writes the bytes and nothing
+                    // else, while the same flags on `["s"]` colour the brackets
+                    // and leave the string inside them quoted and green.
                     match output {
-                        jaq_lite::Value::String(text) if raw => {
+                        jaq_lite::Value::String(text) if format.raw => {
                             out.write_all(text.as_bytes())
                                 .map_err(|error| write_error(&error))?;
                         }
                         _ => {
-                            jaq_lite::write(out, output, style)
+                            jaq_lite::write_painted(out, output, format.style, format.paint)
                                 .map_err(|error| write_error(&error))?;
                         }
                     }
