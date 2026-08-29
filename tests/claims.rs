@@ -1,4 +1,4 @@
-//! The claims in `STDLIB.md`, checked by a program.
+//! The claims in `STDLIB.md` and `BUILD_LOG.md`, checked by a program.
 //!
 //! `STDLIB.md` is a scored artifact. It names each crate this project does not
 //! use and the standard-library machinery that took its place, and it is the
@@ -13,11 +13,20 @@
 //! field. Nothing governed the body.
 //!
 //! So the claims a program can check are checked here, on every run, by anyone
-//! who types `cargo test`. Three are structural -- every file an entry names
+//! who types `cargo test`. Some are structural -- every file an entry names
 //! exists, every status is one of the two permitted words, the shipped count
 //! never falls -- and one is the substantive claim of the entry that was wrong:
 //! that no number in this program is ever formatted, because none is ever
-//! synthesized.
+//! synthesized. How many there are is deliberately not written down here: a
+//! numeral in a doc comment that has to track the `#[test]` items below it is
+//! one more sentence that can go stale, which is this file's own subject.
+//!
+//! One test here is not about `STDLIB.md` at all. `BUILD_LOG.md` publishes a
+//! sha256 a reader is invited to reproduce, and quotes the hashes the harness
+//! and two CI attempts printed. Those six numbers have to agree in a particular
+//! pattern, a digit transcribed wrong out of a CI log is exactly the error no
+//! reviewer catches, and the check costs four comparisons. So it belongs beside
+//! the others rather than in a file of its own.
 //!
 //! What this file cannot do is said plainly rather than left implied. It cannot
 //! tell whether an entry's prose describes the code it points at; only a reader
@@ -274,5 +283,86 @@ fn the_readme_states_every_limit_the_code_enforces() {
     println!(
         "README LIMITS: caps {} and {} named, lookup cost stated",
         caps[0], caps[1]
+    );
+}
+
+/// The hashes `BUILD_LOG.md` publishes have to agree with each other.
+///
+/// Six numbers live in that file. Three are one number: the two builds the
+/// reproducible-build harness compared at different path lengths, and the
+/// `sha256` line offered as the constant a reader should get back. One must
+/// differ from those -- the control build, whose whole job is to differ, since
+/// an assertion that two dissimilar builds match would be satisfied by a
+/// compiler that ignored its flags. The last two are a GitHub runner's, one per
+/// attempt of the same run, and they must equal each other and differ from the
+/// local one: the section quoting them says in prose that the constant is a
+/// function of the host toolchain, and this is that sentence as an assertion.
+///
+/// A digit typed wrong while transcribing a CI log fails here instead of
+/// shipping. What cannot be checked is where any of the six came from; a hash is
+/// thirty-two bytes of nothing in particular, and no test can tell a measured
+/// one from an invented one. The run is linked in that section for the reader
+/// who wants to check, which is the honest division of labour.
+#[test]
+fn the_hashes_recorded_in_the_build_log_agree() {
+    fn is_sha(token: &str) -> bool {
+        token.len() == 64
+            && token
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+    }
+
+    let log = read("BUILD_LOG.md");
+
+    // Lines are found by the tag that labels them and then searched for a hash,
+    // rather than by position: prose in this file starts with `A ` too, and a
+    // check that grabbed the first such line would report a missing hash the day
+    // somebody wrote a sentence.
+    let hash_on = |tag: &str| -> String {
+        log.lines()
+            .filter(|line| line.trim_start().starts_with(tag))
+            .find_map(|line| line.split_whitespace().find(|token| is_sha(token)))
+            .unwrap_or_else(|| panic!("no line starting {tag:?} in BUILD_LOG.md carries a sha256"))
+            .to_string()
+    };
+
+    let build_a = hash_on("A ");
+    let build_b = hash_on("B ");
+    let published = hash_on("sha256 ");
+    let control = hash_on("control ");
+    let attempt_1 = hash_on("ubuntu-latest, attempt 1");
+    let attempt_2 = hash_on("ubuntu-latest, attempt 2");
+
+    assert_eq!(
+        build_a, build_b,
+        "the transcript shows two different hashes for the same source, so the \
+         result line claiming they matched is describing a run that did not happen"
+    );
+    assert_eq!(
+        published, build_a,
+        "the sha256 offered for verification is not the hash the harness measured, \
+         so a reader following the verify line would be told the build is broken"
+    );
+    assert_ne!(
+        control, build_a,
+        "the control build no longer differs from the real one, which makes \
+         assertion 2 vacuous rather than passing"
+    );
+    assert_eq!(
+        attempt_1, attempt_2,
+        "the two CI attempts disagree, so the runner's hash is per-VM after all \
+         and the paragraph calling it a function of the host toolchain is wrong"
+    );
+    assert_ne!(
+        attempt_1, published,
+        "the runner and this laptop now agree; that would be good news and it \
+         makes the surrounding paragraph false, so rewrite the paragraph rather \
+         than this assertion"
+    );
+
+    println!(
+        "BUILD_LOG HASHES: local {}, runner {}, control differs",
+        &published[..8],
+        &attempt_1[..8]
     );
 }

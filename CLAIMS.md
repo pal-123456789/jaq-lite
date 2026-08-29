@@ -23,7 +23,7 @@ row says otherwise.
 | 11 | Every malformed document is rejected | the same run | `n_  must reject  : 188/188` |
 | 12 | Each implementation-defined case has a recorded decision | `cargo test --test conformance` | `tests/i_decisions.tsv`, 35 rows, 10 accept, 25 reject |
 | 13 | The release build needs no network and no lockfile rewrite | `cargo build --release --offline --locked` | succeeds; captured in `deps-proof.txt` |
-| 14 | The suite is green | `cargo test` | 158 passing, 0 failing, summed across every target |
+| 14 | The suite is green | `cargo test` | 159 passing, 0 failing, summed across every target |
 | 15 | The jq comparison is against a real jq | `wsl --exec jq --version` | `jq-1.8.1` |
 | 16 | jq re-renders numbers where this project preserves them | `jq -c . <<< 1e2` | `1E+2` against `1e2` here |
 | 17 | A stream with one failing document exits non-zero here | `jaq-lite -c .a <<< '1 {"a":2}'` | exit 5, where jq exits 0 |
@@ -31,6 +31,7 @@ row says otherwise.
 | 19 | A document over a megabyte survives parse and to_string identically | `cargo test --test throughput` | 1196671 bytes in, the reparsed value identical |
 | 20 | The query language behaves as its table says, and the table covers every way a filter can fail | `cargo test --test query -- --nocapture --test-threads=1` | 5 passing, 40 rows written out and 1 built, 11 named failures, 28 values round tripped |
 | 21 | The README names both nesting caps the code enforces, and the lookup cost `src/value.rs` says it states | `cargo test --test claims -- --nocapture --test-threads=1` | caps 128 and 64 named, lookup cost stated |
+| 22 | Two release builds of this source on one machine are byte identical, and the recorded constant belongs to the host toolchain rather than to the machine | `bash scripts/reproducible_build.sh`, then CI run 18, attempts 1 and 2 | four assertions PASS on three machines; `bbf72e72` twice on `ubuntu-latest`, `46df3c55` here |
 
 Row 9 was corrected on 2026-08-29. It recorded a binary that printed its own
 version, which stopped being true the moment the CLI learned to take arguments.
@@ -41,9 +42,10 @@ quietly.
 Row 14 was re-measured on 2026-08-29 under the same rule. It recorded a suite of
 87 tests, which stopped being true sixty-five tests later, and a row that no
 longer reproduces is a bug however small the number. Performance and round-trip
-fidelity became measurable in commit 46 and are rows 18 and 19. The one claim
-still unrecorded here is the reproducible build, which waits on the hash
-comparison in CI having run twice against the same commit.
+fidelity became measurable in commit 46 and are rows 18 and 19. The last claim
+unrecorded here was the reproducible build, which waited on the hash comparison
+in CI having run twice against the same commit. It ran twice on 2026-08-29,
+printed the same runner hash on two separate machines, and is row 22.
 
 Row 18 was rewritten on 2026-08-29, one commit after it was added and by the rule
 this file already stated. As first written it claimed the figures in the README

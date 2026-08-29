@@ -356,8 +356,8 @@ foreign hardware. Neither of them establishes that the recorded *constant* is
 universal, and it probably is not. The artifact is linked by the host `cc`
 against the host libc's startup objects, so a runner with different binutils or
 a different glibc can satisfy every assertion here and still produce a different
-sha256. Gating on the constant would convert a claim this project has not
-measured into a red build on somebody else's patch Tuesday.
+sha256. Gating on the constant would convert a claim this project does not
+make into a red build on somebody else's patch Tuesday.
 
 So the honest form is: identical source, identical rustc version and identical
 host toolchain give identical bytes. The first two of those three are pinned in
@@ -1061,3 +1061,68 @@ counter and never the stack, and why every measured number in this project is
 asserted as a floor rather than as a figure. None of it is new work. All of it was
 decided in code weeks of commits ago and lived only in module comments, which is
 one file deeper than the reader who wants to know how this thing is built.
+
+
+## What the runner said, twice
+
+The section above predicted that the recorded constant would not travel, and
+said the comparison would be reported rather than gated. Both halves are now
+measured. Run 18 of `ci.yml` ran twice against commit `33eecf4`, forty minutes
+apart on 2026-08-29, and printed this:
+
+      recorded                  46df3c5524e7e26ff84fd830a1047d555c6f1cd1e1ff8162878f99911a2a885e
+      ubuntu-latest, attempt 1  bbf72e72d123e680923d26b621677ad606dc205beaaa69a044973f3b58998b30
+      ubuntu-latest, attempt 2  bbf72e72d123e680923d26b621677ad606dc205beaaa69a044973f3b58998b30
+
+All three jobs -- `gate (ubuntu-latest)`, `gate (windows-latest)` and
+`byte-identical rebuild (ubuntu-latest)` -- concluded `success` on both
+attempts, every step green. That is the first time the state of CI is written
+into this file instead of left as a link somebody has to click.
+
+So the four assertions hold on three machines: the Ubuntu inside WSL on the
+author's laptop, and two GitHub-hosted runners. A rerun is not a repeat.
+GitHub allocates a fresh virtual machine per attempt, so attempt 2 did not run
+on the machine attempt 1 ran on.
+
+The second attempt is the whole point, and it is the difference between a claim
+and a guess. One run tells you that a runner disagrees with the laptop; it
+cannot tell you whether the runner's own number means anything, because a
+one-off hash and a determined hash look identical when you have one of them.
+Two runs separate the two: the second machine reproduced `bbf72e72` exactly. The
+sentence above -- identical source, identical rustc version and identical host
+toolchain give identical bytes -- is therefore a measurement now, and the
+disagreement with `46df3c55` is a property of the third term rather than noise.
+
+What this does not establish: anything about a third host image, anything about
+a different glibc, and anything about Windows, which is not byte-reproducible
+here and is not claimed to be. Two data points on one runner image are two data
+points on one runner image.
+
+`tests/claims.rs` grew a sixth test, and it reads its numbers out of this file
+rather than carrying its own copies. It fails if the harness transcript's two
+builds disagree with each other, if either disagrees with the `sha256` line
+published as the constant a reader should reproduce, if the control build stops
+differing, if the two attempts above disagree, or if the runner's hash stops
+being distinct from the laptop's. So a mistyped digit in this section is a red
+suite rather than a shipped error. What no test can check is whether these
+numbers came out of CI at all -- a hash is thirty-two bytes of nothing in
+particular, and nothing in a test can tell a measured one from an invented one.
+The run is linked for that, and the numbers are quoted in the shape the log
+printed them so that a reader can compare rather than trust.
+
+One sentence above was edited rather than added to. It said that gating on the
+constant would convert *a claim this project has not measured* into somebody
+else's red build; it now says *a claim this project does not make*. After the
+two attempts the claim is measured, and it is false: the constant is a function
+of the host toolchain, and the recorded one belongs to this laptop. The older
+wording was true when written and would have quietly stopped being true tonight,
+which is the same defect this log has now caught four times in its own prose.
+
+A note on method, because it cost a round trip. Job and step conclusions come
+out of the public GitHub API with no token at all, which is how the greens above
+were read. Log *text* does not: the logs endpoint answers 403 to an anonymous
+caller even on a public repository, so the three hash lines had to be read with
+`gh run view --log` as the account that owns the repo. Anything a workflow
+merely prints is therefore harder to get back than anything it asserts, which is
+one more argument for keeping the four properties in assertions and leaving only
+the host-specific constant to an echo.
