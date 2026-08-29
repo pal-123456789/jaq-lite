@@ -739,3 +739,78 @@ promise. The way this file becomes worthless is not by failing to find a defect 
 it is by becoming unable to find one, which is why it asserts that both answers
 occurred and that all six kinds of damage happened, and why those counts are
 printed where a reader can see them rather than kept inside a passing test.
+
+## A sentence that outlived the code it described
+
+Entry 7 of `STDLIB.md` is the nominated Package Killer, which makes it the entry
+a judge is most likely to read closely. Until this commit it said that numbers
+the tool synthesizes go through `format_into` with `core::fmt::NumBuffer`, that
+integer formatting is therefore the only remaining place number text is
+generated, and that `format_into` measured 1.68 times the speed of `to_string`
+over five million values with zero mismatches including `i64::MIN`.
+
+Three sentences, one of them carrying a figure to two decimal places, and none of
+them true of this program. `grep -rn 'NumBuffer\|format_into' src/` returns
+nothing, and never returned anything. The measurement is real; it was taken in a
+throwaway warm-up crate that is not part of this repository, and the entry was
+written from the measurement rather than from the tree. The premise was wrong as
+well: integer formatting is
+not the only remaining place number text is generated here, it is not a place at
+all. `Number::new` has exactly one call site and it is in the lexer. Nothing in
+jaq-lite synthesizes a number. There was no code for a fast path to be in.
+
+Worth recording is which safeguard held and which was never there. The `Status`
+field read `planned`, and that field is governed by a rule in the preamble of
+that same file: planned until the replacing code exists, flipped only by a check
+that refuses an entry it cannot evidence. That rule worked exactly as written,
+and it is why the audit found this immediately. The body of the entry was
+governed by nothing, and a body can say anything at all, including a figure to
+two decimal places.
+
+The obvious fix is the wrong one. The obvious fix is to write the code so the
+sentence becomes true: find somewhere a number gets synthesized, put
+`format_into` there, flip the status. That is choosing a feature to make a
+document true, which is the same error facing the other way, and in practice it
+meant shipping a builtin on a Saturday evening to justify one sentence. The true
+statement is stronger than the false one anyway. No number is
+formatted in this program at all. A parsed number is written back from the byte
+span the grammar validated, and there is no other kind of number in the value
+model. `ryu` exists to solve shortest-round-trip float formatting, an algorithm
+with papers behind it and a decade of bugs in the implementations that predate
+it; the substitution here is not a faster version of that work, it is the absence
+of any need for it. Entry 7 now says that, names the one call site, and reads
+`shipped`.
+
+Saying it is not enough, which is this project's own thesis pointed at its own
+documentation, so `tests/claims.rs` now checks on every `cargo test` what a
+program can check about `STDLIB.md`: that `Number::new` has one call site and
+that it is in the lexer, that every file any entry names exists in the tree, that
+every status is one of the two permitted words, and that the shipped count never
+falls -- a floor in the same sense as the conformance floors, raised by a flip and
+lowered by nothing. It also holds eight number spellings to the byte through the
+public API rather than only in a private unit test, because a reader checking that
+claim reaches for `parse` and `to_string`. The day a builtin does need to print a
+number, the count of call sites becomes two and the build says so out loud
+instead of the document going quietly stale.
+
+That file also states what it cannot check, in its own module doc: whether an
+entry's prose describes the code the entry points at. The entry that failed this
+audit would have passed every assertion in `tests/claims.rs`. A check is a floor
+under a claim and never a proof of it, and the honest thing is to name which
+claims are still held up by nothing more than a person having read them.
+
+A second finding is left standing. Entry 11 says `criterion` was replaced by a
+single `std::time::Instant` measurement around a fixed workload, recorded in
+`README.md` and `CLAIMS.md`. `grep -rln Instant src tests scripts` returns
+nothing and neither file carries such a figure. That entry reads `planned`, which
+is correct, and it is now the only planned entry in the file. It stays planned
+until the measurement exists, which is a commit rather than an edit.
+
+This is the second time in two days that a sentence outlived the code it
+described. The first was a doc comment saying duplicate keys were retained as
+they appeared, when `insert` lets the last value win at the position where the
+key first appeared. Both were found by reading, not by a test failing, which is
+what a claim held up by prose costs: it can be checked only by a person, and only
+if that person looks. In both cases the code was right and the sentence about it
+was wrong, which is the one version of this defect a test suite cannot notice on
+its own.

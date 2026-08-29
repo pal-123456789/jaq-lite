@@ -53,18 +53,25 @@ that refuses to flip an entry it cannot evidence. An entry that still says
    *Where:* `src/value.rs` · *Status:* shipped
 
 7. **Normally:** `ryu` and `itoa` for float and integer formatting.
-   **Instead:** parsed numbers are re-emitted verbatim from the exact byte span
-   the grammar validated, and numbers the tool synthesizes go through
-   `format_into` with `core::fmt::NumBuffer`.
-   Because a parsed number is written back byte for byte, no float formatting
-   happens on that path at all, which is how a thirty-digit integer survives a
-   round trip. Integer formatting is therefore the only remaining place number
-   text is generated, and `format_into` measured 1.68 times the speed of
-   `to_string` over five million values with zero mismatches, including
-   `i64::MIN`. Note for anyone following along: `NumBuffer` is not re-exported
-   through `std::fmt`, so the import must be `core::fmt::NumBuffer` or the
-   compiler answers with E0432. This is the nominated Package Killer.
-   *Where:* `src/value.rs`, `src/serializer.rs` · *Status:* planned
+   **Instead:** no number is formatted anywhere in this program, because none is
+   ever synthesized. A parsed number is written back from the exact byte span the
+   grammar validated: `Number::new` has one call site, in the lexer, and the
+   serializer emits `as_str()`, the bytes that were read. `1e2` comes back as
+   `1e2` where jq 1.8.1 answers `1E+2`, recorded as row 16 of `CLAIMS.md`, and a
+   thirty-digit integer keeps all thirty digits rather than the seventeen an
+   `f64` can carry.
+   That is the whole substitution, and it is a stronger claim than a faster
+   formatter would be. Float formatting is the half of this problem with papers
+   behind it and a decade of bugs in the implementations that predate `ryu`, and
+   it does not happen here at all: what replaced the crate is not code, it is an
+   invariant. An invariant in prose is worth little, so both halves are checked
+   on every run. `number_text_is_reproduced_not_reformatted` in
+   `src/serializer.rs` holds the spellings above to the byte, and
+   `no_number_is_synthesized_outside_the_lexer` in `tests/claims.rs` fails the
+   build the day a second call site appears, so the day a builtin does need to
+   print a number this entry stops being true out loud rather than quietly.
+   This is the nominated Package Killer.
+   *Where:* `src/lexer.rs`, `src/value.rs`, `src/serializer.rs`, `tests/claims.rs` · *Status:* shipped
 
 8. **Normally:** `memchr`. **Instead:** plain byte-slice scanning over a
    string that has already been validated as UTF-8.
