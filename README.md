@@ -214,8 +214,8 @@ reason in `tests/i_decisions.tsv`.
 
 ## Speed
 
-    PARSE:     24.5 MiB/s
-    SERIALIZE: 201.2 MiB/s
+    PARSE:     26.5 MiB/s
+    SERIALIZE: 197.9 MiB/s
 
 Measured by `tests/throughput.rs` over a document of 1196671 bytes that the test
 builds for itself, on AMD Ryzen 5 4600H with Radeon Graphics, Ubuntu on WSL2.
@@ -231,10 +231,20 @@ There are no percentiles here, no outlier rejection and no statistical compariso
 between runs. `criterion` is the crate that provides those, and what replaced it
 is one `std::time::Instant` rather than a smaller version of that crate; the
 difference is spelled out in [STDLIB.md](STDLIB.md). What the test asserts is a
-floor and never the figure -- 20 MiB/s in a release build, 1 in a debug build,
+floor and never the figure -- 5 MiB/s in a release build, 1 in a debug build,
 raisable through `JAQ_PARSE_FLOOR` and `JAQ_SERIALIZE_FLOOR` and lowerable by
 nothing -- so a regression that changes the shape of the algorithm fails a test,
 while an unlucky sample on a busy machine does not.
+
+One sample is one sample. Two runs of this binary on this machine, minutes apart
+with nothing else started, differed by nearly a factor of two; both figures were
+honest and neither of them was the speed of this tool. So the floor sits at a
+fifth of the slower of those two runs rather than just under either, the figure
+above is one run rather than a property of the parser, and the floor is the only
+thing the suite asserts. What gets printed is the mean over the window and not
+the fastest round in it: interference only ever slows a round down, so the fastest
+round is the flattering one to report and it is not what a caller gets. Both runs
+are in [BUILD_LOG.md](BUILD_LOG.md).
 
 The document is built by the test rather than read from `tests/fixtures`, because
 the 95 corpus documents that must parse total 1190 bytes between them: timing

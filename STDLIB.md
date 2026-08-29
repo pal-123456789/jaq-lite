@@ -110,9 +110,11 @@ that refuses to flip an entry it cannot evidence. An entry that still says
     optimized build may delete a parse whose value is dropped unread, and a timed
     region that includes that drop, because a parse whose result is leaked is not
     a parse anyone performs.
-    A floor is asserted and the figure never is: 1 MiB/s in a debug build, 20 in a
+    A floor is asserted and the figure never is: 1 MiB/s in a debug build, 5 in a
     release build, raisable through the environment and lowerable by nothing, the
-    same idiom as the conformance floors. The figures quoted in `README.md` and
+    same idiom as the conformance floors, and set at a fifth of the slower of two
+    runs that differed by nearly a factor of two, rather than just under either of
+    them. The figures quoted in `README.md` and
     `CLAIMS.md` are substituted from the output of the run that produced them
     rather than typed in by hand, which is the safeguard entry 7 did without.
     *Where:* `tests/throughput.rs`, `README.md`, `CLAIMS.md` · *Status:* shipped

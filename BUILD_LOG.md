@@ -881,3 +881,56 @@ entry is accurate. It means every entry names code that exists and files that
 exist, which is the part a program can check. Whether an entry describes what that
 code actually does is still a reader's job, and `tests/claims.rs` says so in its
 own module doc.
+
+## A figure that did not reproduce, and the floor too close under it
+
+Commit 46 measured 44.4 MiB/s for parsing and substituted it into `README.md` out
+of that run's own log, which was the whole point of the exercise. The next run of
+the same binary, minutes later on the same machine with nothing else started,
+printed 24.5. Nothing had been recompiled in between and the workload is
+byte-identical by construction, so the difference is machine state rather than
+code: clock boost, WSL2 scheduling, page cache. Both figures are honest and
+neither of them is the speed of this tool.
+
+That has two consequences, and the document is the smaller one. `CLAIMS.md` row 18
+claimed, in the same commit that added it, that the throughput figures in the
+README are what the test prints, and gave the command to check with. A reader who
+ran it would have got a third number. Under this ledger's own rule -- a row that no
+longer reproduces is a bug rather than a rounding error, the rule that had already
+caught rows 9 and 14 -- row 18 was a defect one commit after it was written, which
+makes it the fastest anyone has found a defect in this project. It now claims the
+thing that does reproduce, which is that the floor is cleared, and quotes the
+figures as one run rather than as a property of the parser.
+
+The test is the larger consequence. A committed floor of 20 against a measured 24.5
+is a margin of twenty-two per cent, on a quantity that had just been observed to
+move by eighty. That is a test which passes here and fails on a judge's laptop
+while Spotlight is indexing, and this log has already said what such a test costs:
+a flaky test is worse than a failing one, because it spends its failures on
+somebody else's commit. The release floor is now 5 MiB/s, a fifth of the slower
+of those two runs. A floor exists to catch a regression that changed the shape
+of the algorithm -- a walk that became quadratic, a borrow that became a clone per
+byte -- and that is a collapse of an order of magnitude, not of a fifth. A floor
+set tight enough to catch twenty per cent of drift cannot tell drift from weather.
+
+The window grew from 300 ms to 500 ms in the same commit, and that is not a fix. At
+roughly 46 ms for a parse of this document, 300 ms bought seven samples and 500
+buys eleven; averaging over more of the noise narrows the spread a little and does
+not turn a single figure into a distribution. Only percentiles would do that, and
+percentiles are the thing `criterion` was dropped without.
+
+What is deliberately not done is the change that would improve the number most.
+Reporting the fastest round instead of the mean over the window would cut the
+spread immediately, because interference only ever slows a round down, so the best
+round is the closest thing to this machine's ceiling that a harness can see. That
+is exactly why it stays out. The fastest round is not what a caller gets, and a
+benchmark that reports its best case has chosen to flatter the code it measures.
+The mean stays, its observed spread is stated in `README.md` and in the doc comment
+that justifies the floor, and the floor is the only thing the suite asserts.
+
+Three commits, three defects, and all three were in prose about code rather than in
+code: entry 7 of `STDLIB.md` described a number formatter nobody had written, row
+14 counted a suite that had since grown by sixty-five tests, and row 18 promised a
+figure that would not repeat. The first two were found by reading. The third was
+found by running the same command twice, which is the cheapest audit available here
+and the one that had been missing.

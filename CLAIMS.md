@@ -27,7 +27,7 @@ row says otherwise.
 | 15 | The jq comparison is against a real jq | `wsl --exec jq --version` | `jq-1.8.1` |
 | 16 | jq re-renders numbers where this project preserves them | `jq -c . <<< 1e2` | `1E+2` against `1e2` here |
 | 17 | A stream with one failing document exits non-zero here | `jaq-lite -c .a <<< '1 {"a":2}'` | exit 5, where jq exits 0 |
-| 18 | The throughput figures in the README are what the test prints | `cargo test --release --test throughput -- --nocapture --test-threads=1` | parse 24.5 MiB/s, serialize 201.2 MiB/s over 1196671 bytes |
+| 18 | Parsing and serializing clear the floor a release build asserts | `cargo test --release --test throughput -- --nocapture --test-threads=1` | 3 passing, floor 5 MiB/s, one run: parse 26.5, serialize 197.9 |
 | 19 | A document over a megabyte survives parse and to_string identically | `cargo test --test throughput` | 1196671 bytes in, the reparsed value identical |
 
 Row 9 was corrected on 2026-08-29. It recorded a binary that printed its own
@@ -42,3 +42,12 @@ longer reproduces is a bug however small the number. Performance and round-trip
 fidelity became measurable in commit 46 and are rows 18 and 19. The one claim
 still unrecorded here is the reproducible build, which waits on the hash
 comparison in CI having run twice against the same commit.
+
+Row 18 was rewritten on 2026-08-29, one commit after it was added and by the rule
+this file already stated. As first written it claimed the figures in the README
+were what the command prints. They are not repeatable to three digits: the same
+release binary, minutes apart on an idle machine, differed by nearly a factor of
+two. The row now claims the thing that does reproduce, which is that the floor is
+cleared, and the digits are given as one run. The floor moved with it, from twenty
+to five, because a floor that cannot tell drift from weather fails on somebody
+else's machine rather than on mine.

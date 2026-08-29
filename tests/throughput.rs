@@ -27,6 +27,10 @@
 //! floor is asserted and the figure never is: a floor catches the regression that
 //! changes the shape of the algorithm, while asserting a figure would fail on a
 //! busy laptop and prove nothing on a fast one.
+//!
+//! The figure printed is the mean over the window and not the fastest round in
+//! it. Interference only ever slows a round down, so the fastest round is the
+//! flattering one to report and it is not what a caller gets.
 
 use jaq_lite::{Style, parse, to_string};
 use std::hint::black_box;
@@ -34,7 +38,12 @@ use std::time::{Duration, Instant};
 
 /// How long each measurement runs for. Not how long the work takes: the loop
 /// repeats the same document until this much time has gone by.
-const BUDGET: Duration = Duration::from_millis(300);
+///
+/// Widening this averages over more of the noise and narrows the spread of the
+/// mean a little. It does not turn one figure into a distribution -- only
+/// percentiles would do that, and percentiles are what `criterion` was dropped
+/// without -- so it is not the reason the floor below is safe.
+const BUDGET: Duration = Duration::from_millis(500);
 
 /// A ceiling on the sample, so a machine fast enough to make `BUDGET` cheap still
 /// finishes. Reaching it is not a failure.
@@ -49,12 +58,20 @@ const MIN_BYTES: usize = 1 << 20;
 
 /// The floor for this build, in whole MiB/s.
 ///
-/// An unoptimized build is the slowest thing that has to pass, and it is roughly
-/// an order of magnitude above one; the optimized floor is set the same way, far
-/// enough below the measured figure that no machine trips it and near enough that
-/// a collapse does.
+/// A floor exists to catch the regression that changed the shape of the algorithm
+/// -- a walk that became quadratic, a borrow that became a clone per byte -- and
+/// that is a collapse of an order of magnitude, not of a fifth. So it is set at
+/// a fifth of the slower of the two runs below rather than just under either.
+///
+/// That looseness is measured rather than guessed. On 2026-08-29 this file printed
+/// 44.4 MiB/s for parsing and, minutes later from the same binary on the same idle
+/// machine, 24.5. Nothing was recompiled in between and the workload is identical
+/// byte for byte by construction, so the difference is machine state: clock boost,
+/// scheduling, page cache. A floor tight enough to catch a fifth of drift cannot
+/// tell drift from weather, and a test that cannot tell them apart spends its
+/// failures on somebody else's commit.
 fn committed_floor() -> usize {
-    if cfg!(debug_assertions) { 1 } else { 20 }
+    if cfg!(debug_assertions) { 1 } else { 5 }
 }
 
 /// Read a floor from the environment, which may raise it but never lower it.
