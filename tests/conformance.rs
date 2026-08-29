@@ -165,3 +165,51 @@ fn rfc8259_conformance() {
         "n_ conformance is {n_pass}, below the floor of {n_floor}; wrongly accepted: {n_fail:?}"
     );
 }
+
+/// Record, per file, what this parser decides about each `i_` fixture.
+///
+/// The suite leaves these cases to the implementation, so a count proves very
+/// little: a different ten accepted would print the same summary. Writing the
+/// decision down per file makes the choice reviewable, and turns any later
+/// drift into a failing test rather than a quiet change of behaviour.
+///
+/// Set `UPDATE_I_DECISIONS=1` to rewrite the record after an intended change.
+/// That is the whole of what a snapshot-testing dependency would have given us
+/// here.
+#[test]
+fn implementation_defined_decisions_are_recorded() {
+    let mut rows = String::from("fixture\tdecision\tdetail\n");
+    let mut count = 0;
+    for path in sorted_fixtures(&fixtures_dir()) {
+        let name = path
+            .file_name()
+            .expect("a fixture has a file name")
+            .to_string_lossy()
+            .into_owned();
+        if !name.starts_with("i_") {
+            continue;
+        }
+        count += 1;
+        let bytes = fs::read(&path).expect("fixture unreadable");
+        let (decision, detail) = match jaq_lite::parse(&bytes) {
+            Ok(_) => ("accept", String::new()),
+            Err(error) => ("reject", error.to_string().replace(['\t', '\n'], " ")),
+        };
+        rows.push_str(&format!("{name}\t{decision}\t{detail}\n"));
+    }
+    assert_eq!(count, 35, "the i_ fixture set changed size");
+
+    let record = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("i_decisions.tsv");
+    if std::env::var_os("UPDATE_I_DECISIONS").is_some() {
+        fs::write(&record, &rows).expect("cannot write the record");
+    }
+    let found = fs::read_to_string(&record)
+        .expect("tests/i_decisions.tsv is missing; regenerate with UPDATE_I_DECISIONS=1")
+        .replace("\r\n", "\n");
+    assert_eq!(
+        found, rows,
+        "the recorded decisions no longer match this parser"
+    );
+}
