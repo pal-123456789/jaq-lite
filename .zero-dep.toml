@@ -1,0 +1,2 @@
+track = "B"
+pitch = "Hand-rolled, RFC 8259 conformant JSON parser, serializer, and jq-style query CLI with rustc-style caret diagnostics. Zero third-party dependencies, validated against the 318-file JSONTestSuite."

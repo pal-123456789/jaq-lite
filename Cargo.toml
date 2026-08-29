@@ -2,5 +2,30 @@
 name = "jaq-lite"
 version = "0.1.0"
 edition = "2024"
+rust-version = "1.98.0"
+description = "A jq-style JSON parser, formatter and query CLI written against the Rust standard library only."
+license = "MIT"
+repository = "https://github.com/pal-123456789/jaq-lite"
+keywords = ["json", "jq", "parser", "cli", "zero-dependency"]
+categories = ["command-line-utilities", "parser-implementations"]
 
+# Intentionally empty, and it stays that way. This is the claim the entire
+# project rests on; Cargo.lock is committed so it can be checked, not trusted.
 [dependencies]
+
+# The reproducible-build mechanism, in three lines.
+#
+# codegen-units = 1 removes the parallel-codegen nondeterminism that otherwise
+# lets two builds of identical source differ. debug = 0 and strip = "symbols"
+# remove absolute paths and symbol tables from the artifact, so the binary does
+# not encode where it was built.
+#
+# Measured before the window: RUSTFLAGS="--remap-path-prefix=..." is a provable
+# no-op once these three are set, and a two-directory comparison only proves
+# anything if the paths differ in LENGTH -- equal-length paths give a false
+# pass. CARGO_INCREMENTAL=0 is required at build time and is set by the
+# verification script rather than here.
+[profile.release]
+codegen-units = 1
+debug = 0
+strip = "symbols"

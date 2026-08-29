@@ -1,0 +1,6 @@
+# Pinned for the reproducible-build claim: an identical source tree must
+# produce an identical binary, which is only meaningful against a named
+# compiler. Verified on x86_64-unknown-linux-gnu.
+[toolchain]
+channel = "1.98.0"
+components = ["rustfmt", "clippy"]
