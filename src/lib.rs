@@ -30,6 +30,7 @@ pub use value::{Number, Value};
 
 mod lexer;
 mod parser;
+mod serializer;
 
 /// Parse a JSON document.
 ///
@@ -55,6 +56,34 @@ pub fn parse(input: &[u8]) -> Result<Value, ParseError> {
         ));
     }
     parser::parse_document(input)
+}
+/// How to lay out serialized output.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Style {
+    /// Two-space indentation, one element per line: `jq`'s default.
+    Pretty,
+    /// No whitespace at all: `jq --compact-output`.
+    Compact,
+}
+
+/// Write `value` to `out` as JSON text.
+///
+/// No trailing newline is written, so a caller printing several values decides
+/// how to separate them.
+///
+/// # Errors
+///
+/// Passes through whatever `out` returns.
+pub fn write<W: std::io::Write>(out: &mut W, value: &Value, style: Style) -> std::io::Result<()> {
+    serializer::write_value(out, value, style, 0)
+}
+
+/// Render `value` as a JSON string.
+#[must_use]
+pub fn to_string(value: &Value, style: Style) -> String {
+    let mut bytes = Vec::new();
+    write(&mut bytes, value, style).expect("writing into a Vec cannot fail");
+    String::from_utf8(bytes).expect("the serializer only ever emits valid UTF-8")
 }
 #[cfg(test)]
 mod tests {
