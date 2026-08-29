@@ -108,47 +108,22 @@ running under `set -e`:
 
     $ printf '1 {"a":2}' | jq -c .a
     2
-    wsl : jq: error (at <stdin>:1): Cannot index number with string "a"
-    At D:\zero-dep-reference\_jaq-lite-prep\patch23.ps1:70 char:49
-    + ... $json, $filter) { $o = ($json | wsl --exec jq -c $filter 2>&1); $scri ...
-    +                                     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        + CategoryInfo          : NotSpecified: (jq: error (at <...with string "a":String) [], RemoteExcept
-       ion
-        + FullyQualifiedErrorId : NativeCommandError
+    jq: error (at <stdin>:1): Cannot index number with string "a"
     [exit 0]
 
     $ printf '1 {"a":2}' | jaq-lite -c .a
-    jaq-lite.exe : jaq-lite: <stdin>: Cannot index number with string "a"
-    At D:\zero-dep-reference\_jaq-lite-prep\patch23.ps1:69 char:47
-    + ... n Ours($json, $filter) { $o = ($json | & $exe -c $filter 2>&1); $scri ...
-    +                                            ~~~~~~~~~~~~~~~~~~~~~~
-        + CategoryInfo          : NotSpecified: (jaq-lite: <stdi...with string "a":String) [], RemoteExcept
-       ion
-        + FullyQualifiedErrorId : NativeCommandError
-    
     2
+    jaq-lite: <stdin>: Cannot index number with string "a"
     [exit 5]
 
 Where the input is malformed, the reported position is the byte that is wrong
-rather than the end of the token:
+rather than the end of the token that contains it:
 
     $ printf '{1:2}' | jq .
-    wsl : jq: parse error: Object keys must be strings at line 1, column 3
-    At D:\zero-dep-reference\_jaq-lite-prep\patch23.ps1:70 char:49
-    + ... $json, $filter) { $o = ($json | wsl --exec jq -c $filter 2>&1); $scri ...
-    +                                     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        + CategoryInfo          : NotSpecified: (jq: parse error...ine 1, column 3:String) [], RemoteExcept
-       ion
-        + FullyQualifiedErrorId : NativeCommandError
+    jq: parse error: Object keys must be strings at line 1, column 3
 
     $ printf '{1:2}' | jaq-lite .
-    jaq-lite.exe : jaq-lite: <stdin>: line 1, column 2: expected a string as the object key
-    At D:\zero-dep-reference\_jaq-lite-prep\patch23.ps1:69 char:47
-    + ... n Ours($json, $filter) { $o = ($json | & $exe -c $filter 2>&1); $scri ...
-    +                                            ~~~~~~~~~~~~~~~~~~~~~~
-        + CategoryInfo          : NotSpecified: (jaq-lite: <stdi... the object key:String) [], RemoteExcept
-       ion
-        + FullyQualifiedErrorId : NativeCommandError
+    jaq-lite: <stdin>: line 1, column 2: expected a string as the object key
 
 jq is also more permissive than RFC 8259 allows: it accepts `inf`, `NaN`, `+1`,
 `.5`, `5.`, `01`, `00`, `1.` and `0.` at exit 0. This project rejects all nine,
