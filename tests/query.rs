@@ -503,6 +503,82 @@ fn every_value_a_filter_emits_is_json() {
     println!("QUERY ROUND TRIP: {checked} values");
 }
 
+/// The builtin names this build answers to, read out of the message a misspelling
+/// produces.
+///
+/// `Builtin` and its `name` method are both private, so this rejection message is
+/// the only place outside the crate where the roster is visible at all -- the same
+/// arrangement as the two nesting caps, which `tests/claims.rs` reads back out of
+/// the source rather than trusting prose. Taking the names from the row rather
+/// than writing them out again means the count below cannot drift away from the
+/// code: the row itself is asserted against what the compiler really says, by the
+/// first test in this file.
+///
+/// The message is `` `lenght` is not a filter; this build has `a`, `b` and `c` ``,
+/// so the names are every other backtick span after the misspelling.
+fn roster() -> Vec<String> {
+    for (filter, _, outcome) in ROWS {
+        if *filter == "lenght"
+            && let Rejected(message) = outcome
+        {
+            return message
+                .split('`')
+                .skip(3)
+                .step_by(2)
+                .map(str::to_owned)
+                .collect();
+        }
+    }
+    panic!("the table no longer has a row that misspells a builtin");
+}
+
+/// The identifier a filter opens with, or the empty string if it opens with
+/// punctuation. `.length` opens with nothing, which is the whole reason a builtin
+/// is only a builtin at the start of a term.
+fn leading_name(filter: &str) -> &str {
+    let end = filter
+        .find(|c: char| !c.is_ascii_alphanumeric() && c != '_')
+        .unwrap_or(filter.len());
+    &filter[..end]
+}
+
+/// Every builtin has rows of its own, and there are eleven of them.
+///
+/// The table can cover every failure tag and still say nothing about a builtin
+/// that was added without one. This asserts the other direction: for each name
+/// the roster reports, at least one row calls it in the first position. The eleven
+/// is written out here on purpose -- a twelfth builtin fails this line, in the
+/// commit that adds it, which is where the decision to test it belongs.
+#[test]
+fn every_builtin_the_build_has_is_exercised_by_rows_of_its_own() {
+    let roster = roster();
+    assert_eq!(
+        roster.len(),
+        11,
+        "the rejection message names {} builtins, so the roster moved and this test was not told",
+        roster.len()
+    );
+    let mut sorted = roster.clone();
+    sorted.sort_unstable();
+    assert_eq!(
+        roster, sorted,
+        "the rejection message lists the builtins out of order"
+    );
+    let mut rows = 0;
+    for name in &roster {
+        let mine = ROWS
+            .iter()
+            .filter(|(filter, _, _)| leading_name(filter) == name.as_str())
+            .count();
+        assert!(
+            mine > 0,
+            "`{name}` is a builtin of this build and no row in this table calls it"
+        );
+        rows += mine;
+    }
+    println!("QUERY BUILTINS: {} named, {rows} rows", roster.len());
+}
+
 #[test]
 fn the_public_surface_is_enough_to_report_a_failure() {
     // A caller who wants to draw a caret needs the position, and gets it without

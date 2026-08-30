@@ -37,6 +37,13 @@
 //! not is this file's subject over again. All of it belongs beside the others
 //! rather than in files of their own.
 //!
+//! Two of them were added the day after a commit falsified nine sentences across
+//! four documents while every gate stayed green. The README's list of builtins is
+//! now read out of `Builtin::name`, which is private, so the arms are read as
+//! text; and the test count row 14 of `CLAIMS.md` states is grepped out of the
+//! tree, because that row had already been corrected once by hand for the same
+//! drift and had drifted again by three commits.
+//!
 //! What this file cannot do is said plainly rather than left implied. It cannot
 //! tell whether an entry's prose describes the code it points at; only a reader
 //! can. This is a floor under the claims, not a proof of them, and the entry
@@ -627,46 +634,54 @@ fn the_readme_names_the_platforms_it_was_tested_on_and_the_compiler_it_pins() {
 ///
 /// What this cannot check is whether the reasoning in the section is any good, or
 /// whether the bonuses named here are the ones the event actually offers.
+/// Small numbers as this project's documents spell them, which is in words.
+///
+/// Three tests here read a count out of the tree and require the prose to say it.
+/// Prose says eleven, not 11, so the count has to be turned back into the word
+/// before it can be looked for.
+const WORDS: &[&str] = &[
+    "zero",
+    "one",
+    "two",
+    "three",
+    "four",
+    "five",
+    "six",
+    "seven",
+    "eight",
+    "nine",
+    "ten",
+    "eleven",
+    "twelve",
+    "thirteen",
+    "fourteen",
+    "fifteen",
+    "sixteen",
+    "seventeen",
+    "eighteen",
+    "nineteen",
+    "twenty",
+];
+
+/// A number spelled in prose has to stand on its own: digits and words alike are
+/// substrings of other words, and `ten` inside `written` is not a claim.
+///
+/// An earlier draft of the limits test accepted any occurrence, and `f64` in a
+/// sentence about how numbers are stored satisfied a search for `64`. That is why
+/// this exists and why three tests now share it.
+fn stands_alone(text: &str, word: &str) -> bool {
+    let attached = |c: char| c.is_ascii_alphanumeric() || c == '_';
+    text.match_indices(word).any(|(at, found)| {
+        !text[..at].chars().next_back().is_some_and(attached)
+            && !text[at + found.len()..]
+                .chars()
+                .next()
+                .is_some_and(attached)
+    })
+}
+
 #[test]
 fn the_readme_accounts_for_every_bonus_the_event_scores() {
-    // Small numbers as the section spells them, which is in words.
-    const WORDS: &[&str] = &[
-        "zero",
-        "one",
-        "two",
-        "three",
-        "four",
-        "five",
-        "six",
-        "seven",
-        "eight",
-        "nine",
-        "ten",
-        "eleven",
-        "twelve",
-        "thirteen",
-        "fourteen",
-        "fifteen",
-        "sixteen",
-        "seventeen",
-        "eighteen",
-        "nineteen",
-        "twenty",
-    ];
-
-    // A number spelled in prose has to stand on its own: digits and words alike
-    // are substrings of other words, and `ten` inside `written` is not a claim.
-    fn stands_alone(text: &str, word: &str) -> bool {
-        let attached = |c: char| c.is_ascii_alphanumeric() || c == '_';
-        text.match_indices(word).any(|(at, found)| {
-            !text[..at].chars().next_back().is_some_and(attached)
-                && !text[at + found.len()..]
-                    .chars()
-                    .next()
-                    .is_some_and(attached)
-        })
-    }
-
     let readme = read("README.md");
     let opening = "## Bonus claims";
     let start = readme
@@ -778,4 +793,176 @@ fn the_readme_accounts_for_every_bonus_the_event_scores() {
         "README BONUSES: +{claimed} of a possible +{offered}, entry {entry} nominated, \
          {paths} paths named"
     );
+}
+
+/// The README's list of builtins is the code's list of builtins.
+///
+/// The filter language is the part of this project a reader is most likely to try,
+/// and "Honest limits" is where they are told what it has. That list went stale in
+/// the commit that made it wrong: the roster grew from four names to eleven, fmt,
+/// clippy, doc and 187 tests all passed, and the README went on saying four.
+/// Nothing here could have caught it, because nothing here read the roster.
+///
+/// So it is read out of `Builtin::name`. Both the enum and the method are private,
+/// which is the same arrangement as the two nesting caps above, and the same
+/// answer applies: read the arms as text rather than trust the prose. Every name
+/// has to appear in that section between backticks, and the count has to be
+/// spelled out there as a word standing on its own.
+///
+/// Two more counts ride along, for the same reason and from the same file. The
+/// number of distinct failures the README claims is counted out of
+/// `EXPECTED_TAGS`, which commit 60 moved from fourteen to fifteen, and the number
+/// of table rows `CLAIMS.md` quotes is read out of `ROW_COUNT`, which it moved
+/// from 63 to 101.
+///
+/// What this cannot check is whether the sentences around the names say anything
+/// true about the builtins they name. It checks that the list is the list.
+#[test]
+fn the_readme_names_every_builtin_this_build_has() {
+    let source = read("src/query.rs");
+    let opening = "    fn name(self) -> &'static str {";
+    let at = source
+        .find(opening)
+        .expect("src/query.rs no longer has Builtin::name for this test to read");
+    let body = &source[at..];
+    let end = body
+        .find("\n    }")
+        .expect("Builtin::name no longer ends where this test expects");
+    let names: Vec<&str> = body[..end]
+        .lines()
+        .filter_map(|line| line.split_once("=> \""))
+        .filter_map(|(_, rest)| rest.split_once('"'))
+        .map(|(name, _)| name)
+        .collect();
+    assert!(
+        names.len() > 3,
+        "{} arms read out of Builtin::name, so this test has stopped reading the roster",
+        names.len()
+    );
+
+    let readme = read("README.md");
+    let opens = "The filter language has";
+    assert_eq!(
+        readme.matches(opens).count(),
+        1,
+        "the README introduces the filter language more than once, so this test cannot \
+         tell which paragraph to hold to the roster"
+    );
+    let from = readme.find(opens).unwrap_or_default();
+    let to = readme
+        .find("`JQ_COLORS` is not read")
+        .expect("the README no longer has the paragraph the limits section ends at");
+    assert!(
+        from < to,
+        "the limits section of the README is out of order"
+    );
+    let section = &readme[from..to];
+
+    for name in &names {
+        assert!(
+            section.contains(&format!("`{name}`")),
+            "`{name}` is a builtin of this build and the README does not name it"
+        );
+    }
+    let word = WORDS
+        .get(names.len())
+        .copied()
+        .unwrap_or_else(|| panic!("{} builtins is past the end of WORDS", names.len()));
+    assert!(
+        stands_alone(section, word),
+        "there are {} builtins and the README does not say {word}",
+        names.len()
+    );
+
+    let query = read("tests/query.rs");
+    let tags = query
+        .split_once("const EXPECTED_TAGS: &[&str] = &[")
+        .and_then(|(_, rest)| rest.split_once("];"))
+        .map(|(list, _)| list.matches('"').count() / 2)
+        .expect("tests/query.rs no longer has EXPECTED_TAGS for this test to count");
+    let word = WORDS
+        .get(tags)
+        .copied()
+        .unwrap_or_else(|| panic!("{tags} failure tags is past the end of WORDS"));
+    assert!(
+        readme.contains(&format!("{word} distinct failures")),
+        "the table names {tags} distinct failures and the README does not say {word}"
+    );
+
+    let rows = query
+        .split_once("const ROW_COUNT: usize = ")
+        .and_then(|(_, rest)| rest.split_once(';'))
+        .and_then(|(digits, _)| digits.trim().parse::<usize>().ok())
+        .expect("tests/query.rs no longer has ROW_COUNT for this test to read");
+    let claims = read("CLAIMS.md");
+    assert!(
+        stands_alone(&claims, &rows.to_string()),
+        "the query table has {rows} rows and CLAIMS.md does not quote that number"
+    );
+
+    println!(
+        "README BUILTINS: {} named, {tags} failure tags, {rows} rows",
+        names.len()
+    );
+}
+
+/// The test count the ledger states is the test count the tree has.
+///
+/// Row 14 of `CLAIMS.md` says the suite is green and says how large the suite is.
+/// That number has now gone stale twice: at eighty-seven, corrected by hand on
+/// 2026-08-29, and again at one hundred and seventy-eight, because three later
+/// commits added tests and nothing read the row. A figure in a ledger that nothing
+/// re-derives is a figure that is true on the day it is typed.
+///
+/// So it is counted here instead, with one rule applied to both sides: a line whose
+/// entire content is the test attribute. That is deliberately not a reading of
+/// `cargo test` output, because no test can run the suite it belongs to, and it is
+/// an equality rather than a floor: both sides are the same count, so a difference
+/// in either direction is the ledger drifting rather than the suite growing.
+#[test]
+fn the_ledger_counts_the_tests_the_tree_actually_has() {
+    let mut files = source_files();
+    let mut integration = Vec::new();
+    for entry in fs::read_dir(root().join("tests")).expect("tests is missing") {
+        let entry = entry.expect("cannot read a directory entry");
+        let path = entry.path();
+        if path.extension().and_then(|part| part.to_str()) == Some("rs") {
+            integration.push(path);
+        }
+    }
+    integration.sort();
+    assert!(
+        integration.len() > 8,
+        "tests holds {} rust files, so this walk has stopped finding them",
+        integration.len()
+    );
+    files.extend(integration);
+
+    let mut counted = 0;
+    for path in &files {
+        let text = fs::read_to_string(path).expect("cannot read a source file");
+        counted += text.lines().filter(|line| line.trim() == "#[test]").count();
+    }
+
+    let claims = read("CLAIMS.md");
+    let row = claims
+        .lines()
+        .find(|line| line.starts_with("| 14 |"))
+        .expect("CLAIMS.md no longer has a row 14");
+    let cell = row
+        .split('|')
+        .nth(4)
+        .expect("row 14 of CLAIMS.md has no evidence cell");
+    let stated: usize = cell
+        .split_whitespace()
+        .find_map(|word| word.parse::<usize>().ok())
+        .expect("row 14's evidence no longer states a number");
+    assert_eq!(
+        stated,
+        counted,
+        "row 14 of CLAIMS.md says {stated} tests and the {} files of this tree carry {counted}",
+        files.len()
+    );
+
+    println!("LEDGER TESTS: {counted} in {} files", files.len());
 }

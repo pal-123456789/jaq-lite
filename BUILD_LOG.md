@@ -1479,3 +1479,123 @@ A fifth of the slowest release sample now on record would be 3.5, and 17.7 still
 clears the committed 5 by a factor of three and a half, so the number stands. The
 comment says all of that now, because a figure whose derivation has been overtaken
 by later evidence should carry the later evidence beside it.
+
+## Eleven builtins, and the nine sentences that stopped being true
+
+The commit that took the filter language from four builtins to eleven passed
+everything. `cargo fmt --check`, clippy with warnings denied, `cargo doc`, 187
+tests, the leak scan over its own staged diff, the staged-path set, and a
+simulation that replayed all twenty of its edits against a snapshot offline before
+the script was allowed to run. Thirty-eight rows were added to the table that pins
+the language against measured jq output, nine tests to the module inside
+`src/query.rs`, and 537 lines in total. Nothing in it was wrong.
+
+Four documents were, the moment it landed. `README.md` said the filter language
+has four functions, named the four, called them "the four bare names that ask a
+value about its own shape", and twice more said "these four"; it also said
+`tests/query.rs` names fourteen distinct failures, which had become fifteen
+because `from_entries` can refuse a key that is not a string. `CLAIMS.md` said the
+suite was 178 tests in row 14, said the query table had 63 rows and 14 named
+failures in row 20, said the claims target had 11 tests in row 25, and opened row
+26 with "The four builtins". `STDLIB.md` said the count that `length` and `keys`
+answer with, when `to_entries` had joined them. Nine sentences, five of them
+figures.
+
+Every one of those was in a file a judge reads. Not one of them was in a file a
+test reads. That is the whole defect: this project has spent nine commits building
+checks that hold prose to code -- the nesting caps read out of the source, the
+reproducible-build phrases required verbatim in two files, the bonus arithmetic
+recomputed from the section's own numbers, the `STDLIB.md` statuses -- and the
+list of builtins, which is the most load-bearing list in the README, was held to
+nothing at all.
+
+So the repair is three tests rather than nine edits.
+
+`the_readme_names_every_builtin_this_build_has` reads the arms of `Builtin::name`
+out of `src/query.rs` as text. It has to read them as text: both the enum and the
+method are private, which is deliberate, and is the same situation as the two
+nesting caps that `tests/claims.rs` already greps out of the source. Every name it
+finds has to appear between backticks in the limits section of `README.md`, and
+the number of them has to be spelled out there as a word standing on its own --
+`eleven`, not `11`, and not `eleven` inside another word. Two more counts ride
+along from `tests/query.rs`, because they are stated in the same section and drift
+the same way: the failure tags, counted out of `EXPECTED_TAGS`, and the row count,
+read out of `ROW_COUNT` and required to appear in `CLAIMS.md`.
+
+`the_ledger_counts_the_tests_the_tree_actually_has` counts the lines whose entire
+content is the test attribute, in every `.rs` file under `src/` and `tests/`, and
+requires row 14 of `CLAIMS.md` to state that number. Row 14 is the row this ledger
+has already corrected once by hand, at eighty-seven, under its own rule that a row
+which no longer reproduces is a bug. It then drifted again, to 178 against a real
+190, which is the argument against correcting figures and for re-deriving
+them. The count is an equality rather than a floor, because both sides are the same
+grep: a difference in either direction is drift rather than growth. It is
+deliberately not a reading of `cargo test` output, since no test can run the suite
+it belongs to.
+
+`every_builtin_the_build_has_is_exercised_by_rows_of_its_own`, in
+`tests/query.rs`, closes the other direction. The table already had to exercise
+every way a filter can fail; it did not have to exercise every builtin, so a
+twelfth one could have been added with no row at all and the suite would have
+stayed green. It now takes the roster from the rejection message a misspelled name
+produces -- the only place outside the crate where the roster is visible -- and
+requires each name to open at least one row. 59 of the 101 rows do.
+
+Reading the roster out of an error message deserves a word, because it looks like
+a trick. It is sound for one reason: the row carrying that message is itself
+asserted against what the compiler really says, by the first test in the same
+file. If the code's roster changed and the message with it, that row fails first.
+Given a green suite, the message is the roster.
+
+## Why eleven and not fifteen
+
+Four builtins were measured against jq 1.8.1 and then cut, which is worth
+recording because a cut with a measurement behind it is a design decision and a
+cut without one is a shrug.
+
+`add`, `join`, `sort`, `tostring` and `tonumber` fail the rule the README now
+states: a name is in this build when it takes no argument and never reads a number
+as a number. Each of those has to total, compare or print one. The measurement
+that settled it is that jq prints the number `1e3` as `1E+3` through every one of
+them, because a value that passes through a jq builtin is re-rendered from a
+double. This tool's whole claim about numbers is that it never does that. A
+builtin that had to would need float formatting, which is the half of the number
+problem with papers behind it, and entry 7 of `STDLIB.md` exists to say this
+project does not carry it. The edge of the builtin set and the edge of the
+zero-dependency claim turned out to be the same line, which is why the README now
+gives the rule rather than the list.
+
+`ascii_downcase` and `ascii_upcase` were measured and cut for a different reason.
+jq refuses a non-string with `explode input must be a string`, because that is how
+they are implemented in jq's own builtin.jq. Matching jq here would mean printing
+a message that names a filter this build does not have; not matching it would mean
+inventing a diagnostic, in a project whose rule is that jq's behaviour is measured
+and never invented. Both were worse than not having the builtin.
+
+`values` and `empty` were cut last. Both need an evaluation arm that emits zero
+values for one input, which nothing else here needs, and both exist to be combined
+with `select` or `//`, which this build does not have. A filter whose reason to
+exist is a filter that does not exist is not a small addition.
+
+Sixty-seven cases were measured before any of this was written, which is where all
+five of the answers in the README's list of surprises came from: a string's length
+is its code points, `null` has a length and `true` does not, an array's `keys` are
+its indices, `reverse` of `null` is the empty array while `reverse` of a string is
+refused outright, and `to_entries` on an array keys with the number `0` rather
+than the string `"0"`. None of those is what a reading of the manual suggests.
+
+What none of this checks is whether the prose around a correct list says anything
+true. A test can require the README to name `flatten`; it cannot notice that the
+sentence beside it describes the wrong depth. The three tests added here move the
+line between what a reader has to verify and what the suite verifies. They do not
+erase it.
+
+One of the three did not compile on the first attempt, and it is worth recording
+why, because the reason is a property of this edition rather than a typo. `roster`
+was written as `if *filter == "lenght" {` wrapping an `if let Rejected(message)`,
+which is how the same shape is written everywhere in a 2021 crate. On edition 2024
+clippy's `collapsible_if` reaches inside a `let` binding, because a let chain can
+now express both conditions at once, and under `-D warnings` the suggestion is a
+build failure rather than advice. The function reads as one condition now. Nothing
+was silenced to get there, which is the point: the lint was right, and the shape it
+asked for is shorter than the one it rejected.

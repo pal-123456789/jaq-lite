@@ -432,7 +432,7 @@ hidden.
 `ParseError` and `FilterError` each carry an offset and a kind, and count lines
 only when asked, so nothing pays for a line table it never prints. The kind is a
 separate public enum from the message, which is what lets `main.rs` choose an exit
-code and `tests/query.rs` name fourteen distinct failures without matching on
+code and `tests/query.rs` name fifteen distinct failures without matching on
 English.
 
 **A depth cap is an explicit counter, never the stack.** Both recursive descents
@@ -474,25 +474,43 @@ with thousands of keys it does not, and nothing here switches representation to
 find out. The trade is the one in the design notes above: insertion order and a
 byte-exact round trip are worth more here than a constant-time lookup.
 
-The filter language has four functions. `.a`, `."a b"`, `.[0]`, `.[-1]`, `.[]`,
+The filter language has eleven functions. `.a`, `."a b"`, `.[0]`, `.[-1]`, `.[]`,
 `.["a b"]`, `|`, `,`, `?` and parentheses are the path-and-stream core that most
-jq one-liners are made of, and `length`, `keys`, `keys_unsorted` and `type` are
-the four bare names that ask a value about its own shape. `map`, `select` and
-every other builtin is refused at compile time, with its own name in the message
-and the four that do exist named beside it, rather than silently ignored: a tool
-that accepted `map` and returned nothing would be worse than one that will not
-compile it.
+jq one-liners are made of, and `first`, `flatten`, `from_entries`, `keys`,
+`keys_unsorted`, `last`, `length`, `not`, `reverse`, `to_entries` and `type` are
+the bare names that go beside it. `map`, `select` and every other builtin is
+refused at compile time, with its own name in the message and all eleven that do
+exist named beside it, rather than silently ignored: a tool that accepted `map`
+and returned nothing would be worse than one that will not compile it.
+
+Where that line falls is not a matter of taste, and it is the same line as the
+zero-dependency claim. A name is in this build when it takes no argument and never
+reads a number as a number; the moment a builtin has to total, compare or print
+one, it needs float parsing or float formatting, and that is precisely the code
+entry 7 of `STDLIB.md` says this project does not carry. `add`, `join`, `sort`,
+`tostring` and `tonumber` each fail that test, and each was measured against jq
+before being cut rather than after: every one of them prints the number `1e3` as
+`1E+3`, which is the reformatting this tool exists not to do. `map` and `select`
+fail the other half of the rule -- they take a filter as an argument, which is a
+language feature rather than a builtin. Counting is the one exception, and it is
+only ever counting: the only number this program synthesizes rather than copying
+out of its input is the count `length`, `keys` and `to_entries` answer with, and
+it is a `usize` printed by the standard library's own integer formatter, in the
+two files entry 7 names and nowhere else.
 
 A name is a builtin only at the start of a term, so `.length` still reaches a key
 called `length` and `.a.length` still reaches one a level down. jq draws the line
 in the same place, and that was measured rather than assumed, as was every other
-answer these four give -- including three that a reading of the manual would not
+answer these eleven give -- including five that a reading of the manual would not
 have suggested. A string's length is its code points and not its bytes; `null` has
-a length and `true` does not; and an array's `keys` are its indices, which is what
-lets one expression walk either kind of container.
+a length and `true` does not; an array's `keys` are its indices, which is what
+lets one expression walk either kind of container; `reverse` of `null` is the empty
+array while `reverse` of a string is refused; and `to_entries` on an array keys
+with the number `0` rather than the string `"0"`, while `from_entries` refuses any
+key that is not a string at all.
 
 `length` on a number is its magnitude with the literal's own spelling, and that is
-the one place these four deliberately disagree with jq: `1e3 | length` is `1e3`
+the one place these eleven deliberately disagree with jq: `1e3 | length` is `1e3`
 here and `1E+3` there, because a value that passes through one of jq's builtins is
 re-rendered and a number here is the bytes it was written with. It is the same
 divergence `.` already has, recorded as row 16 of `CLAIMS.md`, and it is why no

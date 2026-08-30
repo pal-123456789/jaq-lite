@@ -73,7 +73,10 @@ that refuses to flip an entry it cannot evidence. An entry that still says
    paragraph nobody reread: the constant in `tests/claims.rs` now names two files
    and three call sites, and the two new constructors in `src/value.rs` are
    deliberately spelled `Number::new(` instead of the `Self::new(` an idiomatic
-   impl block would use, so the grep keeps counting them.
+   impl block would use, so the grep keeps counting them. Commit 60 was the test of
+   that arrangement: seven more builtins arrived, four of them building containers
+   and one of them counting, and the call sites stayed at three. The check did not
+   have to move because the claim did not.
    Counting constructors was never the claim, though; it was a proxy for it. The
    claim is that the writing path cannot see a float, and that is now asserted
    where it lives: `the_serializer_never_reads_a_number_as_a_float` holds
@@ -83,7 +86,7 @@ that refuses to flip an entry it cannot evidence. An entry that still says
    `src/serializer.rs` still holds the spellings to the byte.
    Which leaves one thing to say plainly rather than to leave a reader to find.
    Integer formatting does now happen here, in exactly one shape: the count that
-   `length` and `keys` answer with is a `usize` turned into text by
+   `length`, `keys` and `to_entries` answer with is a `usize` turned into text by
    `usize::to_string()`. That is the standard library's own integer formatter,
    which is precisely the thing `itoa` exists to be faster than -- 1.68 times, as
    measured on this toolchain and recorded in `BUILD_LOG.md`, against one count
