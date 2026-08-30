@@ -507,3 +507,54 @@ fn the_readme_quotes_the_real_world_counts_it_borrowed() {
         quoted.join(", ")
     );
 }
+
+/// The platforms table names the compiler this project pins, twice, and both
+/// targets it was built for.
+///
+/// The submission asks for a "tested on" line, and a line like that rots in a
+/// particular way: the pin in `Cargo.toml` moves, CI keeps passing because CI
+/// reads the pin rather than the prose, and the README goes on naming a compiler
+/// nobody has used for days. So the version is not compared against a literal
+/// here -- it is read out of `Cargo.toml` and required to appear in the table.
+///
+/// Requiring it exactly twice rather than at least once is the point of the
+/// test. The table has one row per host, and the failure worth catching is
+/// somebody updating one row and forgetting the other.
+#[test]
+fn the_readme_names_the_platforms_it_was_tested_on_and_the_compiler_it_pins() {
+    let readme = read("README.md");
+    let manifest = read("Cargo.toml");
+
+    let marker = "rust-version = \"";
+    let at = manifest
+        .find(marker)
+        .unwrap_or_else(|| panic!("Cargo.toml no longer declares {marker:?}"))
+        + marker.len();
+    let pin: String = manifest[at..].chars().take_while(|c| *c != '"').collect();
+    assert!(!pin.is_empty(), "Cargo.toml declares an empty rust-version");
+
+    let opening = "**Tested on**";
+    let start = readme
+        .find(opening)
+        .unwrap_or_else(|| panic!("the README no longer carries a {opening} block"));
+    // Up to the next heading, so a later section mentioning a target triple
+    // cannot satisfy this test on the table's behalf.
+    let section = readme[start..].split("\n## ").next().unwrap_or_default();
+
+    for target in ["x86_64-pc-windows-msvc", "x86_64-unknown-linux-gnu"] {
+        assert!(
+            section.contains(target),
+            "the platforms table no longer names {target}, so the claim to have been \
+             tested on two hosts is no longer written down anywhere"
+        );
+    }
+
+    let named = section.matches(pin.as_str()).count();
+    assert_eq!(
+        named, 2,
+        "Cargo.toml pins rustc {pin} and the platforms table names it {named} time(s) \
+         rather than once per host; a row was updated without the other"
+    );
+
+    println!("README PLATFORMS: two hosts, both on the pinned rustc {pin}");
+}

@@ -39,6 +39,23 @@ dependency could hide.
 
 One command, no flags, no feature selection, no network access after the clone.
 
+**Tested on** two hosts, both running the compiler `Cargo.toml` pins:
+
+| host | target | rustc |
+|---|---|---|
+| Windows 11 Home Single Language build 26200 | `x86_64-pc-windows-msvc` | 1.98.0, committed 2026-08-18 |
+| Ubuntu26.04LTS under WSL2 | `x86_64-unknown-linux-gnu` | 1.98.0, committed 2026-08-18 |
+
+That table is a claim about two machines one person owns, which is the weaker
+half of the evidence. The stronger half is the badge at the top: CI runs the same
+gate on `windows-latest` and `ubuntu-latest`, on hardware nobody here has touched.
+
+The split is not symmetric and it is worth saying which way. Tests, `clippy` and
+`rustfmt` run on both. The reproducible-build proof and the jq differential are
+Linux only and say so where each is described: the first because the claim is
+about ELF bytes and deliberately excludes MSVC, the second because comparing
+against two different jq builds is not twice the information. `tests/claims.rs`
+reads the version out of `Cargo.toml` and fails if either row here drifts from it.
 ## Usage
 
 Reads standard input, or a file named as the last argument; a bare `-` names
