@@ -147,6 +147,35 @@ fn backtick_spans(field: &str) -> Vec<String> {
         .collect()
 }
 
+/// The builtin roster, read out of the arms of the private `Builtin::name`.
+///
+/// Two tests need it: one holds the README to it, the other holds
+/// `scripts/jq_differential.sh` to it. Reading the method rather than a list
+/// written here is the whole point of both -- a list written here would be one
+/// more figure that nothing re-derives.
+fn builtin_names(source: &str) -> Vec<&str> {
+    let opening = "    fn name(self) -> &'static str {";
+    let at = source
+        .find(opening)
+        .expect("src/query.rs no longer has Builtin::name for these tests to read");
+    let body = &source[at..];
+    let end = body
+        .find("\n    }")
+        .expect("Builtin::name no longer ends where these tests expect");
+    let names: Vec<&str> = body[..end]
+        .lines()
+        .filter_map(|line| line.split_once("=> \""))
+        .filter_map(|(_, rest)| rest.split_once('"'))
+        .map(|(name, _)| name)
+        .collect();
+    assert!(
+        names.len() > 3,
+        "{} arms read out of Builtin::name, so this reading has stopped working",
+        names.len()
+    );
+    names
+}
+
 #[test]
 fn numbers_are_synthesized_only_where_entry_7_says_they_are() {
     let mut total = 0usize;
@@ -820,25 +849,7 @@ fn the_readme_accounts_for_every_bonus_the_event_scores() {
 #[test]
 fn the_readme_names_every_builtin_this_build_has() {
     let source = read("src/query.rs");
-    let opening = "    fn name(self) -> &'static str {";
-    let at = source
-        .find(opening)
-        .expect("src/query.rs no longer has Builtin::name for this test to read");
-    let body = &source[at..];
-    let end = body
-        .find("\n    }")
-        .expect("Builtin::name no longer ends where this test expects");
-    let names: Vec<&str> = body[..end]
-        .lines()
-        .filter_map(|line| line.split_once("=> \""))
-        .filter_map(|(_, rest)| rest.split_once('"'))
-        .map(|(name, _)| name)
-        .collect();
-    assert!(
-        names.len() > 3,
-        "{} arms read out of Builtin::name, so this test has stopped reading the roster",
-        names.len()
-    );
+    let names = builtin_names(&source);
 
     let readme = read("README.md");
     let opens = "The filter language has";
@@ -965,4 +976,113 @@ fn the_ledger_counts_the_tests_the_tree_actually_has() {
     );
 
     println!("LEDGER TESTS: {counted} in {} files", files.len());
+}
+
+/// The differential compares every builtin, and runs the count it claims.
+///
+/// `scripts/jq_differential.sh` is the only file here that runs another
+/// implementation, and until this commit it ran fourteen comparisons and called no
+/// builtin at all: it proved the parser and the serializer agree with jq about
+/// eight documents and six paths through them, and left the eleven filters the
+/// README spends a page describing compared against nothing. The script now
+/// carries a roster and fails on a builtin no comparison reaches -- but only on a
+/// machine that has jq, which is the CI runner and not the one this was written on.
+///
+/// So the parts of that promise which can be read without running jq are read
+/// here, and all three are equalities rather than floors:
+///
+/// * the roster on the script's `BUILTINS` line is the arms of `Builtin::name`, so
+///   a twelfth builtin cannot be added to the code and forgotten in the shell
+/// * the count the script claims is the count it writes: one per `compare` line at
+///   column zero, plus one per document, which is what its first section loops over
+/// * that same count is what row 24 of `CLAIMS.md` and the README both state
+#[test]
+fn the_differential_compares_every_builtin_this_build_has() {
+    let source = read("src/query.rs");
+    let names = builtin_names(&source);
+
+    let script = read("scripts/jq_differential.sh");
+    let opens = "readonly BUILTINS=\"";
+    let at = script
+        .find(opens)
+        .map(|found| found + opens.len())
+        .expect("the differential no longer declares a BUILTINS roster");
+    let tail = &script[at..];
+    let end = tail
+        .find('"')
+        .expect("the differential's BUILTINS roster is never closed");
+    // The line is wrapped, and a shell continuation is a backslash then a newline.
+    // Splitting on whitespace leaves the backslash as a word of its own, so it is
+    // dropped by name rather than trimmed out of the text.
+    let roster: Vec<&str> = tail[..end]
+        .split_whitespace()
+        .filter(|word| *word != "\\")
+        .collect();
+    assert_eq!(
+        roster, names,
+        "the differential's roster and this build's builtins are not the same list"
+    );
+
+    let claimed: usize = script
+        .split_once("readonly EXPECTED_COMPARISONS=")
+        .and_then(|(_, rest)| rest.split_once('\n'))
+        .and_then(|(digits, _)| digits.trim().parse::<usize>().ok())
+        .expect("the differential no longer states EXPECTED_COMPARISONS as a bare number");
+
+    let written = script
+        .lines()
+        .filter(|line| line.starts_with("compare "))
+        .count();
+    let mut documents = 0;
+    // Written the way source_files() already reads a directory here: the path goes
+    // in by value, because a borrow that nothing needs afterwards is a clippy
+    // needless_borrows_for_generic_args away from a red gate under -D warnings.
+    for entry in fs::read_dir(root().join("tests/fixtures/real_world"))
+        .expect("the real-world corpus is missing")
+    {
+        let path = entry.expect("cannot read a corpus entry").path();
+        if path.extension().and_then(|part| part.to_str()) == Some("json") {
+            documents += 1;
+        }
+    }
+    assert!(
+        documents > 1,
+        "the corpus holds {documents} documents, so this count has stopped working"
+    );
+    assert_eq!(
+        written + documents,
+        claimed,
+        "the differential writes {written} comparisons and loops over {documents} \
+         documents, and claims {claimed}"
+    );
+
+    let claims = read("CLAIMS.md");
+    let row = claims
+        .lines()
+        .find(|line| line.starts_with("| 24 |"))
+        .expect("CLAIMS.md no longer has a row 24");
+    let cell = row
+        .split('|')
+        .nth(4)
+        .expect("row 24 of CLAIMS.md has no evidence cell");
+    let stated: usize = cell
+        .split_whitespace()
+        .find_map(|word| word.parse::<usize>().ok())
+        .expect("row 24's evidence no longer states a number");
+    assert_eq!(
+        stated, claimed,
+        "row 24 of CLAIMS.md says {stated} comparisons and the differential runs {claimed}"
+    );
+
+    let readme = read("README.md");
+    let phrase = format!("{claimed} comparisons");
+    assert!(
+        readme.contains(&phrase),
+        "the differential runs {claimed} comparisons and the README does not say so"
+    );
+
+    println!(
+        "DIFFERENTIAL: {claimed} comparisons, {} builtins, {documents} documents",
+        roster.len()
+    );
 }

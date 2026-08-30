@@ -509,6 +509,14 @@ array while `reverse` of a string is refused; and `to_entries` on an array keys
 with the number `0` rather than the string `"0"`, while `from_entries` refuses any
 key that is not a string at all.
 
+Those answers are compared rather than remembered. `scripts/jq_differential.sh`
+runs 62 comparisons against jq on every push: the identity filter on each document
+of the real-world corpus, six paths through them, the eleven builtins against those
+same documents, and then the shapes that corpus does not contain -- an array of
+arrays, an empty object, three keys in the wrong order. The script fails on a
+builtin that no comparison reaches as loudly as it fails on a disagreement,
+because a differential is worth exactly the ground it covers.
+
 `length` on a number is its magnitude with the literal's own spelling, and that is
 the one place these eleven deliberately disagree with jq: `1e3 | length` is `1e3`
 here and `1E+3` there, because a value that passes through one of jq's builtins is

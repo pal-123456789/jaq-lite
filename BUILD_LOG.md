@@ -1599,3 +1599,67 @@ now express both conditions at once, and under `-D warnings` the suggestion is a
 build failure rather than advice. The function reads as one condition now. Nothing
 was silenced to get there, which is the point: the lint was right, and the shape it
 asked for is shorter than the one it rejected.
+
+## Forty-eight comparisons that were missing
+
+`scripts/jq_differential.sh` exists to turn a sentence into a command. The README's
+compatibility section opens by saying that every claim in it came from running jq
+beside this binary rather than from reading jq's manual, and until that script
+existed the sentence described something that had been done once at a terminal.
+Fourteen comparisons made it a command: the identity filter on each of the eight
+real-world documents, and six paths a person would really type.
+
+Read again on the last day, the hole in it was plain. Not one of the fourteen
+called a builtin. The eleven filters the README spends a page describing -- and
+whose surprising answers it lists one at a time, code points rather than bytes,
+`null` having a length, an array's `keys` being its indices -- were compared
+against nothing at all, in the one file whose entire purpose is to compare them.
+Row 24 of CLAIMS.md was true as written and the coverage a reader would infer from
+it was not there.
+
+Forty-eight comparisons were added in two sections. The first takes every builtin
+to the same eight documents: `length` over an object, a string and two arrays,
+`keys` against `keys_unsorted` on a document whose keys are not in order, `type` on
+a number and on an object, `not` on a real boolean and on two values that are true
+by being present, `first` and `last` and `reverse` on ten file records, a
+`to_entries` round trip back through `from_entries`, and `keys[0]`, which is the
+one piece of grammar the README describes and nothing was exercising. The second
+supplies the shapes eight real documents do not happen to contain: an array of
+arrays for `flatten` to open all the way down, entries written as entries for
+`from_entries` to build an object out of, an empty array and an empty object and an
+empty string and `null` so that every length of zero is compared, three keys in the
+wrong order so that `keys` and `keys_unsorted` can differ, and a string of seven
+code points in ten bytes.
+
+Those five inputs are written into the script's own temporary directory rather than
+into `tests/fixtures/real_world/`. That corpus is eight documents a machine really
+produced, each with its provenance recorded, and four of them carry the CRLF a
+round-trip test measures and a `.gitattributes` rule protects; a ninth file
+hand-written to give `flatten` something to flatten would have disturbed the
+corpus, the round-trip test, PROVENANCE.md and a row of the freeze check at once,
+to obtain one line of JSON. Inputs that exist for one comparison now live beside
+that comparison.
+
+Two comparisons are still deliberately absent, and both are absences this
+repository states rather than routes around. `length` on a number is row 16: a
+value that passes through one of jq's builtins is re-rendered, so `1e3 | length` is
+`1E+3` there and `1e3` here, and a differential that included it would go red on a
+divergence chosen on purpose. `from_entries` over number keys is the other: jq
+stringifies such a key through `tojson`, and doing that here would mean owning a
+number formatter, which is the line the builtin set is drawn along. `to_entries` on
+an array is compared, because both tools agree it keys with the number `0`; its
+result is simply never piped back.
+
+The script also grew two guards about itself, because a differential that compares
+nothing would otherwise pass. Standard error is kept out of the comparison by
+design, so two tools that both refused an input would agree on an empty file: an
+empty result on both sides is now its own outcome and fails the run. And the
+eleven names are written on one line that a test holds to the arms of the private
+`Builtin::name`, so a twelfth builtin cannot be added to the code and forgotten
+here; the script then fails on a name no comparison reaches.
+
+The measurement, before any of this was installed: all 62 comparisons agree byte
+for byte against jq-1.8.1, none of them empty, every builtin reached. The bytes
+that were measured are the bytes that were committed -- the file was copied into
+place rather than typed again, because a script re-typed after it was measured is
+a script that has not been measured.
