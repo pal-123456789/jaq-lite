@@ -70,6 +70,15 @@ const MIN_BYTES: usize = 1 << 20;
 /// scheduling, page cache. A floor tight enough to catch a fifth of drift cannot
 /// tell drift from weather, and a test that cannot tell them apart spends its
 /// failures on somebody else's commit.
+///
+/// Four release samples across 2026-08-29 and 2026-08-30, one binary and unchanged
+/// source, have since printed 26.5, 27.0, 34.2 and 17.7 MiB/s for parsing and
+/// 197.9, 143.5, 206.5 and 162.3 for serializing: a factor of 1.9 between the
+/// extremes of the one and 1.4 between the extremes of the other. A fifth of the
+/// slowest of those would be 3.5 rather than the 5 committed here, and 17.7 still
+/// clears 5 by a factor of three and a half, so the number stands. It is recorded
+/// here and not only in `BUILD_LOG.md` so that whoever next thinks of tightening
+/// it can see what the tightening would have to survive.
 fn committed_floor() -> usize {
     if cfg!(debug_assertions) { 1 } else { 5 }
 }

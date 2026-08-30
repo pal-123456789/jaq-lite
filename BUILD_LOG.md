@@ -1443,18 +1443,39 @@ returned two days earlier, on a different boot of the same machine, which is the
 first evidence in this log that the published constant is stable across days and
 not merely within one sitting.
 
-The pass ran twice inside the hour, on source that had not changed since the
-README's figures were substituted in two days earlier. The first run printed 27.0
-MiB/s for parsing and 143.5 for serializing; the second printed 34.2 and 206.5.
-Set beside the 26.5 and 197.9 already in the document, three samples of one binary
-span twenty-nine per cent for parsing and forty-four for serializing, and the
-serialize figure fell twenty-seven per cent below the published one before rising
-four per cent past it. None of the three is a defect and none of them needs
-fixing. What they settle between them is whether a release floor of 5 MiB/s is too
-generous to be worth asserting: a floor set just under 197.9 would have failed the
-first of these runs, on this machine, on unchanged code, two days after being set.
-`CLAIMS.md` row 18 and the README now quote all three, because a band a reader
-lands inside is a claim that reproduces where a single number is one that does
-not. The two figures in the README's own speed block stay as the run that produced
-them rather than being replaced with the best of the three, which is the rule that
-already governs reporting the mean of the window instead of its fastest round.
+The pass ran three times across two hours, on source that had not changed since
+the README's figures were substituted in two days earlier. It printed 27.0 MiB/s
+for parsing and 143.5 for serializing, then 34.2 and 206.5, then 17.7 and 162.3.
+Set beside the 26.5 and 197.9 already in the document, four samples of one binary
+span a factor of 1.9 for parsing and 1.4 for serializing, and the parse figure rose
+twenty-nine per cent above the published number before falling a third below it.
+None of the four is a defect and none of them needs fixing. What they settle
+between them is whether a release floor of 5 MiB/s is too generous to be worth
+asserting: a floor set just under 197.9 would have failed the first of these runs,
+on this machine, on unchanged code, two days after being set.
+
+The fourth sample settled something else, about the shape of a claim rather than
+its content. The commit before this one wrote the spread of the first three runs
+into the README and into row 18 of `CLAIMS.md` as a list of samples, and the next
+run of the same binary landed outside the list it had just published. A document
+that enumerates its measurements is stale one measurement later. Both passages now
+give the extremes, the factor between them and the reason, which a fifth sample
+widens rather than contradicts -- the same move as naming a check's exceptions
+instead of loosening the check, one level up. The two figures in the README's own
+speed block still stay as the run that produced them rather than being replaced
+with the best of the four, which is the rule that already governs reporting the
+mean of the window instead of its fastest round.
+
+The cause is visible in the same output that raised the question. Parsing moved 8
+rounds through its 500 ms window in the slowest pass and 15 in the fastest, and in
+that slowest pass every other timed step ran quicker than it had in the pass that
+measured 27.0: fmt, clippy, the suite and the three named targets were all faster
+while the timed window was a third slower. A 500 ms single-threaded loop at the
+start of a test binary measures this laptop's clock state about as much as it
+measures the code, and that is not something a floor can be made immune to; it is
+something a floor has to be set loose enough to survive. The doc comment on
+`committed_floor()` derives 5 from a fifth of the slower of the two runs it names.
+A fifth of the slowest release sample now on record would be 3.5, and 17.7 still
+clears the committed 5 by a factor of three and a half, so the number stands. The
+comment says all of that now, because a figure whose derivation has been overtaken
+by later evidence should carry the later evidence beside it.

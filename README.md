@@ -289,13 +289,18 @@ the fastest round in it: interference only ever slows a round down, so the faste
 round is the flattering one to report and it is not what a caller gets. Both runs
 are in [BUILD_LOG.md](BUILD_LOG.md).
 
-Two further runs of this binary, days later on a different boot of the same
-machine, printed 27.0 and 143.5 MiB/s and then 34.2 and 206.5, from source that
-had not changed in between. Three samples span twenty-nine per cent for parsing
-and forty-four for serializing, and the serialize figure fell twenty-seven per
-cent below the number above before rising four per cent past it. The figures above
-stay as the run that produced them rather than as the best of the three, for the
-same reason the mean of the window is reported and not the fastest round in it.
+Three further runs of this binary, two days later and within two hours of one
+another on a different boot of the same machine, printed 27.0, 34.2 and 17.7 MiB/s
+for parsing and 143.5, 206.5 and 162.3 for serializing, from source that had not
+changed between any of them. Four samples of one binary therefore span a factor of
+1.9 for parsing and 1.4 for serializing: the slowest parse fell a third below the
+figure above and the fastest rose twenty-nine per cent over it. None of that is a
+defect being reported. A 500 ms single-threaded window at the start of a test
+binary measures this laptop's clock state about as much as it measures the code,
+and the pass that produced the slowest parse of the four finished every one of its
+other timed steps faster than the pass that produced 27.0. It is why the floor is
+5 rather than 150, and why the figures above stay as the run that produced them
+instead of being replaced with the best of the four.
 
 The document is built by the test rather than read from `tests/fixtures`, because
 the 95 corpus documents that must parse total 1190 bytes between them: timing
