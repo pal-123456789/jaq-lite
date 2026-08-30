@@ -372,9 +372,30 @@ fn the_readme_states_every_limit_the_code_enforces() {
         readme.contains("O(n)"),
         "value.rs sends the reader to the README for the lookup cost, and the README is silent"
     );
+    let mut ragged = Vec::new();
+    let mut above = "";
+    for line in readme.lines() {
+        if line.starts_with('#') && !above.trim().is_empty() {
+            ragged.push(line);
+        }
+        above = line;
+    }
+    assert!(
+        ragged.is_empty(),
+        "these README headings have no blank line above them: {ragged:?}"
+    );
+    let fences = readme.matches("```").count();
+    assert_eq!(
+        fences % 2,
+        0,
+        "the README has {fences} code fences, so a block is left unterminated"
+    );
     println!(
-        "README LIMITS: caps {} and {} named, lookup cost stated",
-        caps[0], caps[1]
+        "README LIMITS: caps {} and {} named, cost stated, {} headings clear, {} fences",
+        caps[0],
+        caps[1],
+        readme.lines().filter(|line| line.starts_with('#')).count(),
+        fences / 2
     );
 }
 
