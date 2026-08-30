@@ -1126,3 +1126,80 @@ caller even on a public repository, so the three hash lines had to be read with
 merely prints is therefore harder to get back than anything it asserts, which is
 one more argument for keeping the four properties in assertions and leaving only
 the host-specific constant to an echo.
+
+## A corpus that found no bug, and the sentence it corrected anyway
+
+The conformance corpus is 318 files chosen to break parsers. Passing it is
+necessary and it is nowhere near sufficient, because nothing a person actually
+pipes into a JSON tool looks like it. So the plan carried a row that reads "fix:
+defects found against real-world JSON", on the assumption that pointing this
+parser at ordinary documents would turn something up.
+
+Finding ordinary documents was the first problem. Vendoring somebody's
+`package-lock.json` drags in a licence question for data that is not needed;
+writing the documents by hand produces JSON containing exactly the constructs I
+thought to write, which is the same blind spot the test would be trying to find.
+What was already on the machine was three tools that emit JSON as a matter of
+course: `cargo metadata`, rustc under `--message-format=json`, and PowerShell's
+`ConvertTo-Json`. Three producers rather than one, because a corpus from a single
+producer only proves the parser handles that producer. cargo and rustc write a
+document on one line and escape nothing they do not have to. PowerShell indents,
+uses CRLF, and escapes characters that never needed escaping. Between them they
+cover both of the interesting cases and neither of them was written by me.
+
+Two things went wrong in the collector, and both are worth writing down.
+
+The scratch crate that produces the rustc diagnostics is built with its own
+target directory, set in a `cmd` one-liner. In `cmd`, `set VAR=value && next`
+assigns `"value "` -- the space in front of the `&&` is part of the value. cargo
+was handed a target directory whose name ended in a space, the build failed with
+101, and because that invocation sent its standard error to `nul` there was
+nothing on screen but an exit code. Quoting the whole assignment fixes the first
+half. The second half is the durable lesson: a collector must never send a
+subprocess's standard error to `nul`, because the run that fails is the only run
+whose output you needed.
+
+Then the redaction refused to keep `metadata.json`. Before anything is committed
+the collector substitutes out the user name, the machine name and every absolute
+path, re-reads each document, and aborts if any needle survived. One needle was
+the leading part of this repository's directory name -- which is also a substring
+of this crate's own description, sitting in `cargo metadata` output as the
+perfectly public word it is. A needle that matches your own prose stops the
+collector on a document that is clean. The path forms it was meant to catch were
+already covered by the substitutions above it, so the needle was narrowed to the
+three concrete spellings of a path rather than deleted.
+
+Then the measurement, and it did not go as predicted. The prediction was that the
+escape handling would be where this tool and jq parted company, because
+PowerShell escapes the apostrophe as an escape spelled backslash, `u`, then
+`0027`, and does it 104 times in one 60 KB document. All eight documents parsed,
+reprinted, reparsed and reprinted to the same bytes on the first attempt. The
+four that their producer emitted without whitespace came back byte for byte --
+the same bytes cargo and rustc wrote, not an equivalent document. `jq-1.8.1` run
+beside this binary over the same eight documents, fourteen comparisons of the
+identity filter and of paths a person would really type, agreed byte for byte on
+all fourteen. Zero disagreements.
+
+That is a weaker result than a bug and it is still worth committing. A row that
+promised defects and found none can be closed two ways: by inventing a fix for
+something that is not broken, or by saying what was measured. The corpus, the
+harness and this section are the second.
+
+What the corpus did find was documentary. The README says, in bold, that numbers
+are re-emitted from the bytes that were read, and says nothing at all about
+strings -- so a reader can reasonably carry the rule across and expect the
+apostrophe escapes to survive. They do not, and they should not: a string is
+decoded on the way in and re-escaped minimally on the way out, which is jq's rule
+and the opposite of the rule for numbers. Numbers keep their spelling; strings
+keep their meaning. One paragraph, stating the asymmetry rather than leaving half
+of it implied.
+
+Counting the escapes for that paragraph turned up a second family nobody had
+planned to test. `culture.json` escapes 48 forward slashes as well as its 104
+apostrophes, and a solidus never needed escaping in the first place -- it is the
+escape jq is best known for not re-emitting. Two families in one document makes
+the assertion a rule about strings instead of a fact about one character, so both
+counts are pinned, along with the 31 raw non-ASCII bytes that pass through
+untouched in the same file. The paragraph quotes all three numbers, and
+`tests/claims.rs` now reads them back out of the harness and fails if the prose
+and the measurement stop agreeing.

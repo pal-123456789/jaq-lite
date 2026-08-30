@@ -436,3 +436,74 @@ fn the_readme_quotes_the_reproducible_build_harness_verbatim() {
 
     println!("README HARNESS: 4 phrases verbatim, ci job named, no hash published");
 }
+
+/// The README's paragraph on strings quotes three counts out of
+/// `tests/real_world.rs`, and this is the check that they are still the same
+/// numbers.
+///
+/// That paragraph is the only place a reader learns that numbers and strings
+/// follow opposite rules here -- a number keeps the bytes it was written with, a
+/// string keeps its meaning -- and it earns the claim by quoting what a document
+/// a real tool wrote actually contained. Three numbers typed into prose are
+/// three numbers that can drift away from the harness that measured them, so
+/// they are read back out of it rather than trusted.
+///
+/// The search is scoped to that one paragraph rather than to the whole file. A
+/// check that accepted the number anywhere in the README would pass on a
+/// coincidence somewhere else in it, and would go on passing after the paragraph
+/// itself was deleted.
+#[test]
+fn the_readme_quotes_the_real_world_counts_it_borrowed() {
+    let harness = read("tests/real_world.rs");
+    let readme = read("README.md");
+
+    let opening = "**Strings are not.**";
+    let start = readme
+        .find(opening)
+        .unwrap_or_else(|| panic!("the README no longer carries a paragraph opening {opening:?}"));
+    let paragraph = readme[start..].split("\n\n").next().unwrap_or_default();
+
+    let attached = |c: char| c.is_ascii_alphanumeric() || c == '_';
+    let mut quoted = Vec::new();
+    for name in ["APOSTROPHE_ESCAPES", "SOLIDUS_ESCAPES", "RAW_NON_ASCII"] {
+        let marker = format!("const {name}: usize = ");
+        let at = harness
+            .find(&marker)
+            .unwrap_or_else(|| panic!("tests/real_world.rs no longer declares {name}"))
+            + marker.len();
+        let digits: String = harness[at..]
+            .chars()
+            .take_while(|c| c.is_ascii_digit())
+            .collect();
+        assert!(
+            !digits.is_empty(),
+            "{name} is no longer written as a decimal literal"
+        );
+        let named = paragraph
+            .match_indices(digits.as_str())
+            .any(|(pos, found)| {
+                !paragraph[..pos].chars().next_back().is_some_and(attached)
+                    && !paragraph[pos + found.len()..]
+                        .chars()
+                        .next()
+                        .is_some_and(attached)
+            });
+        assert!(
+            named,
+            "the README's paragraph on strings does not name the {digits} that {name} \
+             asserts, so the measurement moved and the sentence describing it did not"
+        );
+        quoted.push(digits);
+    }
+
+    assert!(
+        paragraph.contains("tests/real_world.rs"),
+        "the paragraph quotes three measured counts without naming the harness that \
+         measured them, which leaves a reader nothing to check them against"
+    );
+
+    println!(
+        "README STRINGS: counts {} read back out of the harness",
+        quoted.join(", ")
+    );
+}

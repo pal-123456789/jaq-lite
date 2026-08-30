@@ -1,0 +1,20 @@
+{
+    "Id":  "India Standard Time",
+    "DisplayName":  "(UTC+05:30) Chennai, Kolkata, Mumbai, New Delhi",
+    "StandardName":  "India Standard Time",
+    "DaylightName":  "India Daylight Time",
+    "BaseUtcOffset":  {
+                          "Ticks":  198000000000,
+                          "Days":  0,
+                          "Hours":  5,
+                          "Milliseconds":  0,
+                          "Minutes":  30,
+                          "Seconds":  0,
+                          "TotalDays":  0.22916666666666666,
+                          "TotalHours":  5.5,
+                          "TotalMilliseconds":  19800000,
+                          "TotalMinutes":  330,
+                          "TotalSeconds":  19800
+                      },
+    "SupportsDaylightSavingTime":  false
+}

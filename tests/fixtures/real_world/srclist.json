@@ -1,0 +1,52 @@
+[
+    {
+        "Name":  "color.rs",
+        "Length":  7540,
+        "LastWriteTimeUtc":  "\/Date(1788003838008)\/"
+    },
+    {
+        "Name":  "diag.rs",
+        "Length":  14485,
+        "LastWriteTimeUtc":  "\/Date(1788003867326)\/"
+    },
+    {
+        "Name":  "error.rs",
+        "Length":  6606,
+        "LastWriteTimeUtc":  "\/Date(1787992231499)\/"
+    },
+    {
+        "Name":  "lexer.rs",
+        "Length":  15931,
+        "LastWriteTimeUtc":  "\/Date(1787977447369)\/"
+    },
+    {
+        "Name":  "lib.rs",
+        "Length":  9610,
+        "LastWriteTimeUtc":  "\/Date(1787999359987)\/"
+    },
+    {
+        "Name":  "main.rs",
+        "Length":  15072,
+        "LastWriteTimeUtc":  "\/Date(1788003867415)\/"
+    },
+    {
+        "Name":  "parser.rs",
+        "Length":  12361,
+        "LastWriteTimeUtc":  "\/Date(1787981548303)\/"
+    },
+    {
+        "Name":  "query.rs",
+        "Length":  38638,
+        "LastWriteTimeUtc":  "\/Date(1787992233174)\/"
+    },
+    {
+        "Name":  "serializer.rs",
+        "Length":  14616,
+        "LastWriteTimeUtc":  "\/Date(1787998092157)\/"
+    },
+    {
+        "Name":  "value.rs",
+        "Length":  4668,
+        "LastWriteTimeUtc":  "\/Date(1788009316418)\/"
+    }
+]

@@ -41,8 +41,9 @@ comparison, with LF line endings and no header. From this directory:
 
     sha256sum -c FIXTURES_MANIFEST.sha256
 
-The manifest covers the 340 data files only. It does not cover itself, this
-file, or the license.
+The manifest covers those 340 vendored data files only. It does not cover
+itself, this file, the license, or `real_world/`, which is not vendored
+material and carries its own `PROVENANCE.md`.
 
 The aggregate digest of the corpus is the SHA-256 of the manifest file:
 
@@ -85,3 +86,15 @@ The only thing that breaks without it is `cargo test`.
 This disclosure is repeated in `STDLIB.md` and the README, because a reader
 checking the zero-dependency claim should not have to find this file to learn
 that third-party material is present.
+
+## What in this directory is not vendored
+
+`real_world/` is not third-party material and no attribution is owed for it.
+Those documents were produced on the author's machine by `cargo`, `rustc` and
+PowerShell inside the hackathon window; the commands that wrote them, and the
+substitutions applied before they were kept, are in `real_world/PROVENANCE.md`.
+
+Both `.gitattributes` rules above cover them, for the same two reasons: their
+exact bytes are the test, and they are data rather than code. What does not apply
+is the licence obligation, since nobody else owns them, and `sha256sum -c` above,
+which does not reach into that directory.

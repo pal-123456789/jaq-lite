@@ -162,6 +162,16 @@ one you wrote:
 Matching jq would mean implementing decimal canonicalisation in order to return
 a less faithful answer, so the original text is kept instead.
 
+**Strings are not.** A string is decoded on the way in and re-escaped minimally
+on the way out, which is the opposite rule and is also jq's. PowerShell's
+`ConvertTo-Json` makes the difference visible, because it escapes characters that
+never needed escaping: in `tests/fixtures/real_world/culture.json`, 104
+apostrophes and 48 solidi arrive as escape sequences and come back as bare
+characters, while the 31 raw non-ASCII bytes in the same document pass through
+untouched. Numbers keep their spelling; strings keep their meaning. All three
+counts are asserted in `tests/real_world.rs`, and `tests/claims.rs` fails if this
+paragraph and those constants stop agreeing.
+
 **A stream's exit status accounts for every document, not just the last.** A
 failure followed by a success exits 0 under jq, which hides it from a script
 running under `set -e`:
@@ -211,6 +221,18 @@ regression fails a test rather than quietly lowering a number in this file. For
 the third group a count would prove little, since a different ten accepted would
 print the same line, so the decision taken on each file is recorded with its
 reason in `tests/i_decisions.tsv`.
+
+JSONTestSuite is adversarial by construction, and passing it says nothing about
+the JSON a build system emits. A second corpus sits beside it:
+`tests/fixtures/real_world/` holds documents that `cargo metadata`, rustc's
+`--message-format=json` and PowerShell's `ConvertTo-Json` really produced, kept
+byte for byte. Every one of them survives a compact reprint and a second parse,
+and the ones their producer emitted without whitespace come back byte for byte --
+the same bytes cargo and rustc wrote rather than an equivalent document. The
+commands, the substitutions applied before they were kept, and what is asserted
+about them are in that directory's `PROVENANCE.md`. It found no behavioural
+defect, which is worth stating plainly: what it corrected was the paragraph on
+strings above.
 
 ## Speed
 

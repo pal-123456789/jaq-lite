@@ -8,8 +8,13 @@
 # 25 of them are not valid UTF-8, several contain NUL bytes, and two are
 # 100 000 levels deep: the exact bytes ARE the test. Git must never convert
 # them, on commit, on clone, or on a CI runner.
+#
+# The same rule covers real_world/, which is not vendored: four of those
+# documents were written by PowerShell with CRLF line endings, and converting
+# them would change what the round-trip test measures.
 tests/fixtures/** -text
 
-# They are third-party data rather than our code, so they are kept out of the
-# language statistics. Provenance and upstream commit are in ATTRIBUTION.md.
+# All of it is data rather than code, so it is kept out of the language
+# statistics. The upstream commit and licence for the vendored half are in
+# ATTRIBUTION.md; real_world/PROVENANCE.md covers the other half.
 tests/fixtures/** linguist-vendored
