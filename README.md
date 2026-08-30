@@ -44,7 +44,7 @@ One command, no flags, no feature selection, no network access after the clone.
 | host | target | rustc |
 |---|---|---|
 | Windows 11 Home Single Language build 26200 | `x86_64-pc-windows-msvc` | 1.98.0, committed 2026-08-18 |
-| Ubuntu26.04LTS under WSL2 | `x86_64-unknown-linux-gnu` | 1.98.0, committed 2026-08-18 |
+| Ubuntu 26.04 LTS under WSL2 | `x86_64-unknown-linux-gnu` | 1.98.0, committed 2026-08-18 |
 
 That table is a claim about two machines one person owns, which is the weaker
 half of the evidence. The stronger half is the badge at the top: CI runs the same

@@ -1251,3 +1251,38 @@ differential that forgave a mismatch whenever the versions differed would forgiv
 every real defect too, since the versions almost always differ. So it fails, and
 the script prints both versions first: if that job ever goes red on a version
 difference rather than on a defect, the first line of the log says which.
+
+### A distribution name that lost its spaces
+
+The platforms table in the README is assembled from what the two toolchains and
+the two operating systems report, rather than from anything typed by hand, which
+is the right way round and is also how a shell quoting bug got into published
+prose.
+
+The Linux row asks WSL for the distribution name:
+
+    wsl --exec bash -lc '. /etc/os-release; printf "%s" "$PRETTY_NAME"'
+
+That command is correct as bash. It is not what bash received. The inner double
+quotes do not survive the trip from PowerShell across the Win32 command line, so
+bash saw three words and a format string with no quoting left on it, printf reused
+the format once per argument as printf is specified to do, and `Ubuntu 26.04 LTS`
+arrived as `Ubuntu26.04LTS`. Nothing failed. The table was written, the suite was
+green, the claims test passed -- it checks the compiler version, which was right --
+and CI passed, and the wrong string was pushed.
+
+Two fixes, and the second is the one that matters. `echo` instead of `printf`,
+because echo joins its arguments with a single space and needs no inner quotes at
+all, which removes the hazard rather than escaping it. And then the shape of the
+answer is asserted before it is allowed anywhere near a file: a distribution name
+with no space in it is the precise signature of this bug, so it now stops the
+script.
+
+The general lesson is the one this log keeps arriving at from different
+directions. Values captured from a subprocess were trusted here because they came
+from a measurement rather than from a person, and a measurement is only as good as
+the plumbing that carried it. Every earlier version of this mistake in this
+project was also a quoting bug at a language boundary: a `cmd` variable assignment
+that silently kept the space in front of `&&`, and a PowerShell redirection that
+turned a subprocess's standard error into error records. Capture the value, then
+check that it looks like the thing you asked for.
