@@ -1,16 +1,15 @@
 //! The filter language as one table, read through the public API only.
 //!
-//! `src/query.rs` already tests this language from the inside, thirty-one tests
-//! deep, and this file does not repeat them. It is here for three things none of
-//! them can do.
+//! `src/query.rs` already tests this language from the inside, forty tests deep,
+//! and this file does not repeat them. It is here for three things none of them
+//! can do.
 //!
 //! The first is being readable as a specification. Anyone who wants to know what
-//! this tool's query language does currently has to reconstruct it from
-//! thirty-one assertions spread over four hundred and fifty lines. Below it is
-//! sixty-three rows of filter, input and outcome, and the rows are checked on
-//! every run, so this
-//! specification cannot drift away from the implementation the way a prose one
-//! does.
+//! this tool's query language does currently has to reconstruct it from forty
+//! tests scattered through the second half of that file. Below it is one hundred
+//! and one rows of filter, input and outcome, and the rows are checked on every
+//! run, so this specification cannot drift away from the implementation the way a
+//! prose one does.
 //!
 //! The second is the seam. The unit tests compare against a `Vec<Value>`; a
 //! caller gets text. Every value the table emits is serialized and parsed back
@@ -146,7 +145,7 @@ const ROWS: &[(&str, &str, Outcome)] = &[
         "null",
         Rejected("this is not a well-formed string"),
     ),
-    // The four builtins. Every value below was measured against jq 1.8.1 rather
+    // The eleven builtins. Every value below was measured against jq 1.8.1 rather
     // than read out of its manual, and the one row that deliberately disagrees
     // with jq says so where it sits.
     ("length", "null", Yields(&["0"])),
@@ -198,19 +197,120 @@ const ROWS: &[(&str, &str, Outcome)] = &[
         r#"{"a":1}"#,
         Fails(r#"Cannot index number with string "a""#),
     ),
-    // A bare name that is not one of the four. The message names the four,
+    // `first` and `last` are `.[0]` and `.[-1]`, refusals included.
+    ("first", "[1,2,3]", Yields(&["1"])),
+    ("first", "[]", Yields(&["null"])),
+    ("first", "null", Yields(&["null"])),
+    ("last", "[1,2,3]", Yields(&["3"])),
+    ("last", "null", Yields(&["null"])),
+    (
+        "first",
+        r#""abc""#,
+        Fails("Cannot index string with number"),
+    ),
+    (
+        "last",
+        r#"{"a":1}"#,
+        Fails("Cannot index object with number"),
+    ),
+    // `reverse` is `[.[length - 1 - range(0; length)]]` in jq, and that shows: a
+    // boolean fails at `length`, a string has a length and then fails the index,
+    // and null has length zero, so it reverses instead of failing.
+    ("reverse", "[1,2,3]", Yields(&["[3,2,1]"])),
+    ("reverse", "[]", Yields(&["[]"])),
+    ("reverse", "null", Yields(&["[]"])),
+    (
+        "reverse",
+        r#""abc""#,
+        Fails("Cannot index string with number"),
+    ),
+    ("reverse", "true", Fails("boolean (true) has no length")),
+    // `to_entries` keys an object with strings and an array with numbers. The
+    // number is the measured answer; the string `"0"` would have looked just as
+    // plausible.
+    (
+        "to_entries",
+        r#"{"b":2,"a":1}"#,
+        Yields(&[r#"[{"key":"b","value":2},{"key":"a","value":1}]"#]),
+    ),
+    ("to_entries", "{}", Yields(&["[]"])),
+    (
+        "to_entries",
+        "[10,20]",
+        Yields(&[r#"[{"key":0,"value":10},{"key":1,"value":20}]"#]),
+    ),
+    ("to_entries", "null", Fails("null (null) has no keys")),
+    // `from_entries` is stricter than jq's manual suggests. The short spellings
+    // are refused, a pair array is refused, and a key that is not a string is
+    // refused rather than converted -- and two of those three messages are ones
+    // this language already had.
+    (
+        "from_entries",
+        r#"[{"key":"a","value":1}]"#,
+        Yields(&[r#"{"a":1}"#]),
+    ),
+    (
+        "from_entries",
+        r#"[{"k":"a","v":1}]"#,
+        Fails("Cannot use null (null) as object key"),
+    ),
+    (
+        "from_entries",
+        r#"[["a",1]]"#,
+        Fails(r#"Cannot index array with string "key""#),
+    ),
+    (
+        "from_entries",
+        r#"[{"key":0,"value":1}]"#,
+        Fails("Cannot use number (0) as object key"),
+    ),
+    // The pair inverts for an object and cannot for an array, because an array's
+    // keys are numbers and numbers are not object keys.
+    (
+        "to_entries | from_entries",
+        r#"{"b":2,"a":1}"#,
+        Yields(&[r#"{"b":2,"a":1}"#]),
+    ),
+    (
+        "to_entries | from_entries",
+        "[10,20]",
+        Fails("Cannot use number (0) as object key"),
+    ),
+    // `not` is jq's truthiness inverted: only null and false are false, so zero,
+    // the empty string and the empty array are all true.
+    ("not", "null", Yields(&["true"])),
+    ("not", "false", Yields(&["true"])),
+    ("not", "true", Yields(&["false"])),
+    ("not", "0", Yields(&["false"])),
+    ("not", r#""""#, Yields(&["false"])),
+    ("not", "[]", Yields(&["false"])),
+    // `flatten` opens arrays all the way down and leaves objects whole. An object
+    // *input* is iterated for its values, which reads like a bug and is what jq
+    // does, because the definition begins with `.[]`.
+    ("flatten", "[[1,[2]],3]", Yields(&["[1,2,3]"])),
+    ("flatten", "[[[[1]]]]", Yields(&["[1]"])),
+    ("flatten", "[[]]", Yields(&["[]"])),
+    ("flatten", r#"[{"a":[1]}]"#, Yields(&[r#"[{"a":[1]}]"#])),
+    ("flatten", r#"{"a":1}"#, Yields(&["[1]"])),
+    ("flatten", "null", Fails("Cannot iterate over null (null)")),
+    // The new builtins are terms like the old ones, so steps and `?` apply.
+    ("to_entries[0].key", r#"{"a":1}"#, Yields(&[r#""a""#])),
+    ("reverse | first", "[1,2,3]", Yields(&["3"])),
+    ("flatten | length", "[[1,[2]],3]", Yields(&["3"])),
+    ("first?", "true", Yields(&[])),
+    // A bare name that is not one of the eleven. The message names all eleven,
     // because the way anybody arrives here is by misspelling one of them.
     (
         "lenght",
         "null",
         Rejected(
-            "`lenght` is not a filter; this build has `keys`, `keys_unsorted`, `length` and `type`",
+            "`lenght` is not a filter; this build has `first`, `flatten`, `from_entries`, `keys`, `keys_unsorted`, `last`, `length`, `not`, `reverse`, `to_entries` and `type`",
         ),
     ),
 ];
 
 /// How many rows the table above has, so that deleting one is a failure.
-const ROW_COUNT: usize = 63;
+const ROW_COUNT: usize = 101;
 
 /// The row whose filter is 131 characters of parentheses, built rather than
 /// written out. Sixty-five of them clears a cap of sixty-four.
@@ -234,6 +334,7 @@ const EXPECTED_TAGS: &[&str] = &[
     "invalid string",
     "no keys",
     "no length",
+    "not an object key",
     "unexpected byte",
     "unexpected end",
     "unexpected token",
@@ -267,6 +368,7 @@ fn eval_tag(error: &EvalError) -> &'static str {
         EvalError::NotIterable { .. } => "cannot iterate",
         EvalError::NoLength { .. } => "no length",
         EvalError::NoKeys { .. } => "no keys",
+        EvalError::NotAnObjectKey { .. } => "not an object key",
     }
 }
 

@@ -35,11 +35,21 @@
 //!
 //! # Builtins
 //!
-//! Four filters are written as bare names rather than as paths: `length`, `keys`,
-//! `keys_unsorted` and `type`. They are the four that ask a value about its own
-//! shape, which is the half of jq this tool is pointed at; nothing here turns a
-//! value into a different one, so there is no `map`, no `select` and no
-//! arithmetic.
+//! Eleven filters are written as bare names rather than as paths: `first`,
+//! `flatten`, `from_entries`, `keys`, `keys_unsorted`, `last`, `length`, `not`,
+//! `reverse`, `to_entries` and `type`.
+//!
+//! The set is closed under a rule rather than being a sample of jq: a filter is
+//! here when it can be answered without ever reading a number as a number. That
+//! is this crate's whole argument, so the edge of the builtin set and the edge of
+//! the zero-dependency claim are deliberately the same line. `add` and `sort`
+//! would have to total and compare numbers; `join`, `tostring` and `tonumber`
+//! would have to print one, and jq prints `1e3` as `1E+3`, which is a float
+//! formatter's decision and the one thing this crate declines to own. Counting is
+//! the single exception, and counting is only ever counting: `length`, `keys` and
+//! `to_entries` build their numbers with `Number::from_count`, which never sees a
+//! float. `map` and `select` are absent for an unrelated reason -- they take a
+//! filter as an argument, and every name here is bare.
 //!
 //! A name is a builtin only at the start of a term. After a `.` the same token is
 //! a field name, so `.length` and `.a.length` still reach a key spelled
@@ -158,13 +168,30 @@ enum OnError {
 /// accepts it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Builtin {
-    /// `length`: `0` for null, the magnitude of a number, code points in a
-    /// string, elements in an array, keys in an object, an error for a boolean.
-    Length,
+    /// `first`: `.[0]`, down to answering `null` for an empty array.
+    First,
+    /// `flatten`: every nested array opened, all the way down.
+    Flatten,
+    /// `from_entries`: an array of `{"key":..,"value":..}` objects made an
+    /// object, and as strict as jq 1.8.1 is about what an entry may be.
+    FromEntries,
     /// `keys`: an object's keys in sorted order, or an array's indices.
     Keys,
     /// `keys_unsorted`: the same, in the order the document wrote them.
     KeysUnsorted,
+    /// `last`: `.[-1]`.
+    Last,
+    /// `length`: `0` for null, the magnitude of a number, code points in a
+    /// string, elements in an array, keys in an object, an error for a boolean.
+    Length,
+    /// `not`: `true` for `null` and `false`, and `false` for everything else --
+    /// including `0`, `""`, `[]` and `{}`.
+    Not,
+    /// `reverse`: an array back to front, and `[]` for null.
+    Reverse,
+    /// `to_entries`: an object or an array as an array of `key`/`value` objects,
+    /// where an array's keys are numbers and an object's are strings.
+    ToEntries,
     /// `type`: jq's name for the type, as a string.
     Type,
 }
@@ -173,16 +200,36 @@ impl Builtin {
     /// Every name this build answers to, sorted.
     ///
     /// Sorted because `FilterErrorKind::UnknownFilter` renders this list rather
-    /// than repeating it, so a fifth builtin joins that message without anyone
-    /// remembering to, and the message stays in a stable order.
-    const ALL: &'static [Self] = &[Self::Keys, Self::KeysUnsorted, Self::Length, Self::Type];
+    /// than repeating it, so a twelfth builtin joins that message without anyone
+    /// remembering to, and the message stays in a stable order. A test asserts
+    /// the order rather than trusting this comment.
+    const ALL: &'static [Self] = &[
+        Self::First,
+        Self::Flatten,
+        Self::FromEntries,
+        Self::Keys,
+        Self::KeysUnsorted,
+        Self::Last,
+        Self::Length,
+        Self::Not,
+        Self::Reverse,
+        Self::ToEntries,
+        Self::Type,
+    ];
 
     /// The spelling that selects this builtin.
     fn name(self) -> &'static str {
         match self {
+            Self::First => "first",
+            Self::Flatten => "flatten",
+            Self::FromEntries => "from_entries",
             Self::Keys => "keys",
             Self::KeysUnsorted => "keys_unsorted",
+            Self::Last => "last",
             Self::Length => "length",
+            Self::Not => "not",
+            Self::Reverse => "reverse",
+            Self::ToEntries => "to_entries",
             Self::Type => "type",
         }
     }
@@ -211,7 +258,7 @@ enum Node {
     /// `(a)?` -- a `?` with no single step to attach to, so it catches whatever
     /// the parenthesised filter raises.
     Optional(Box<Node>),
-    /// `length`, `keys`, `keys_unsorted`, `type`
+    /// One of the eleven bare names: `length`, `to_entries`, `not`, and so on.
     ///
     /// The only node with no source. A builtin reads the input it was handed,
     /// which is what makes `length` on its own a whole filter.
@@ -367,8 +414,9 @@ impl fmt::Display for FilterErrorKind {
             }
             Self::UnknownFilter { name } => {
                 // jq says `nosuch/0 is not defined` and stops there. Naming the
-                // alternatives costs nothing when there are four of them, and the
-                // overwhelmingly likely way to arrive here is a typo in one.
+                // alternatives costs a line and a half when there are eleven of
+                // them, and the overwhelmingly likely way to arrive here is still
+                // a typo in one.
                 write!(f, "`{name}` is not a filter; this build has ")?;
                 for (position, which) in Builtin::ALL.iter().enumerate() {
                     let separator = if position == 0 {
@@ -425,6 +473,17 @@ pub enum EvalError {
         /// The value itself, cut short exactly where jq cuts it short.
         shown: String,
     },
+    /// `from_entries` given an entry whose `key` is not a string.
+    ///
+    /// jq refuses rather than converting, and it arrives here even for an entry
+    /// with no `key` field at all, because the absent field reaches the check as
+    /// null.
+    NotAnObjectKey {
+        /// The type of the thing offered as a key.
+        found: &'static str,
+        /// The value itself, cut short exactly where jq cuts it short.
+        shown: String,
+    },
 }
 
 impl fmt::Display for EvalError {
@@ -446,6 +505,9 @@ impl fmt::Display for EvalError {
             }
             Self::NoKeys { found, shown } => {
                 write!(f, "{found} ({shown}) has no keys")
+            }
+            Self::NotAnObjectKey { found, shown } => {
+                write!(f, "Cannot use {found} ({shown}) as object key")
             }
         }
     }
@@ -828,9 +890,16 @@ fn eval(node: &Node, input: &Value, out: &mut Vec<Value>) -> Result<(), EvalErro
             // input directly. `keys[0]` works because the *step* wraps the
             // builtin rather than the other way round.
             out.push(match which {
-                Builtin::Length => length(input)?,
+                Builtin::First => at(input, 0)?,
+                Builtin::Flatten => flatten(input)?,
+                Builtin::FromEntries => from_entries(input)?,
                 Builtin::Keys => keys_of(input, Sorted::Yes)?,
                 Builtin::KeysUnsorted => keys_of(input, Sorted::No)?,
+                Builtin::Last => at(input, -1)?,
+                Builtin::Length => length(input)?,
+                Builtin::Not => not(input),
+                Builtin::Reverse => reverse(input)?,
+                Builtin::ToEntries => to_entries(input)?,
                 Builtin::Type => Value::String(input.type_name().to_owned()),
             });
             Ok(())
@@ -979,6 +1048,143 @@ fn count_value(count: usize) -> Value {
     Value::Number(Number::from_count(count))
 }
 
+/// `not`: jq's truthiness, inverted.
+///
+/// Besides `type`, the only builtin here that cannot fail on any input, and the
+/// only one that answers without looking inside the value at all. Everything
+/// except `null` and `false` is true in jq, which makes `0`, `""`, `[]` and `{}`
+/// all true; every one of those four was measured rather than assumed, because
+/// each is false in some other language a reader may be arriving from.
+fn not(value: &Value) -> Value {
+    Value::Bool(matches!(value, Value::Null | Value::Bool(false)))
+}
+
+/// `reverse`: an array back to front.
+///
+/// jq defines this as `[.[length - 1 - range(0; length)]]`, and the definition
+/// shows through in the refusals. A boolean has no `length`, so it fails there and
+/// says `boolean (true) has no length`; a string and a number both have a length
+/// and then fail the *index* instead; and null has length zero, so it reverses to
+/// an empty array rather than being refused at all. Those four answers are the
+/// ones jq 1.8.1 gave, not the ones its manual implies.
+fn reverse(value: &Value) -> Result<Value, EvalError> {
+    match value {
+        Value::Null => Ok(Value::Array(Vec::new())),
+        Value::Array(items) => Ok(Value::Array(items.iter().rev().cloned().collect())),
+        Value::Bool(_) => Err(EvalError::NoLength {
+            found: value.type_name(),
+            shown: shown(value),
+        }),
+        _ => Err(EvalError::NotIndexableByNumber {
+            found: value.type_name(),
+        }),
+    }
+}
+
+/// One `{"key":..,"value":..}` object, in that order.
+fn entry(key: Value, value: Value) -> Value {
+    Value::Object(vec![("key".to_owned(), key), ("value".to_owned(), value)])
+}
+
+/// `to_entries`: an object or an array as an array of entries.
+///
+/// An object's keys stay in the order the document wrote them, which is why this
+/// is defined against `keys_unsorted` and not `keys`. An array's keys are the
+/// numbers `0`, `1`, `2` rather than the strings `"0"`, `"1"`, `"2"` -- either
+/// would have looked right, so jq was asked. The counts go through `count_value`,
+/// so producing them formats no float.
+fn to_entries(value: &Value) -> Result<Value, EvalError> {
+    match value {
+        Value::Object(members) => Ok(Value::Array(
+            members
+                .iter()
+                .map(|(key, member)| entry(Value::String(key.clone()), member.clone()))
+                .collect(),
+        )),
+        Value::Array(items) => Ok(Value::Array(
+            items
+                .iter()
+                .enumerate()
+                .map(|(index, item)| entry(count_value(index), item.clone()))
+                .collect(),
+        )),
+        _ => Err(EvalError::NoKeys {
+            found: value.type_name(),
+            shown: shown(value),
+        }),
+    }
+}
+
+/// `from_entries`: entries back into an object.
+///
+/// jq 1.8.1 is far stricter here than its manual suggests, and every rule below is
+/// a measurement. `.key` has to be there: `{"k":..,"v":..}` is refused, and
+/// refused with `Cannot use null (null) as object key`, because the absent field
+/// arrives at the key check as null. A two-element array is refused with
+/// `Cannot index array with string "key"`. A key that is present but is not a
+/// string is refused rather than converted. Two of those three messages already
+/// existed in this language, which is the whole argument for measuring first --
+/// the filter turned out to need one new error and no new conversions.
+fn from_entries(value: &Value) -> Result<Value, EvalError> {
+    let mut entries = Vec::new();
+    iterate(value, &mut entries)?;
+    let mut built: Vec<(String, Value)> = Vec::new();
+    for found in &entries {
+        let key = match field(found, "key")? {
+            Value::String(text) => text,
+            other => {
+                return Err(EvalError::NotAnObjectKey {
+                    found: other.type_name(),
+                    shown: shown(&other),
+                });
+            }
+        };
+        let member = field(found, "value")?;
+        // Deliberately not `iter_mut().find(..) { } else { }`: the borrow of
+        // `built` taken by the `if let` would still be live in its `else`, which
+        // borrowck rejects. The position is taken into a `usize` first so that no
+        // borrow of `key` or of `built` outlives the search.
+        let slot = built.iter().position(|(existing, _)| *existing == key);
+        match slot {
+            Some(index) => built[index].1 = member,
+            None => built.push((key, member)),
+        }
+    }
+    Ok(Value::Object(built))
+}
+
+/// `flatten`: every nested array opened, all the way down.
+///
+/// An object *input* is iterated for its values, so `{"a":1} | flatten` is `[1]`.
+/// That reads like a bug and is not one: jq's definition begins with `.[]`, and
+/// the measurement agrees. An object *element* survives whole, because only arrays
+/// are opened, so `[{"a":[1]}]` comes back unchanged.
+///
+/// No depth cap is needed here. The recursion can only go as deep as the value
+/// already is, and no value deeper than the parser's nesting limit exists to be
+/// passed in.
+fn flatten(value: &Value) -> Result<Value, EvalError> {
+    let mut top = Vec::new();
+    iterate(value, &mut top)?;
+    let mut out = Vec::new();
+    for item in &top {
+        flatten_into(item, &mut out);
+    }
+    Ok(Value::Array(out))
+}
+
+/// One level of `flatten`, recursing into arrays and nothing else.
+fn flatten_into(value: &Value, out: &mut Vec<Value>) {
+    match value {
+        Value::Array(items) => {
+            for item in items {
+                flatten_into(item, out);
+            }
+        }
+        other => out.push(other.clone()),
+    }
+}
+
 /// `.name`.
 ///
 /// Null is indexable and yields null, which is what makes `.a.b.c` on a missing
@@ -1048,7 +1254,7 @@ fn iterate(value: &Value, out: &mut Vec<Value>) -> Result<(), EvalError> {
 
 #[cfg(test)]
 mod tests {
-    use super::{EvalError, Filter, FilterError, FilterErrorKind};
+    use super::{Builtin, EvalError, Filter, FilterError, FilterErrorKind};
     use crate::Style;
 
     /// Compile, run, and render every output compactly, so a test can state its
@@ -1307,7 +1513,7 @@ mod tests {
         );
         assert_eq!(
             wont_compile("lenght").kind().to_string(),
-            "`lenght` is not a filter; this build has `keys`, `keys_unsorted`, `length` and `type`"
+            "`lenght` is not a filter; this build has `first`, `flatten`, `from_entries`, `keys`, `keys_unsorted`, `last`, `length`, `not`, `reverse`, `to_entries` and `type`"
         );
     }
 
@@ -1468,8 +1674,9 @@ mod tests {
         assert_eq!(run("type", r#""s""#), vec![r#""string""#]);
         assert_eq!(run("type", "[]"), vec![r#""array""#]);
         assert_eq!(run("type", "{}"), vec![r#""object""#]);
-        // `type` is the one filter here that cannot fail, which is what makes it
-        // the thing to reach for when a document's shape is the question.
+        // `type` cannot fail on any input, which is what makes it the thing to
+        // reach for when a document's shape is the question. `not` is the only
+        // other builtin here that is total; the other nine can all refuse.
         assert_eq!(run("length | type", "[1,2]"), vec![r#""number""#]);
     }
 
@@ -1507,5 +1714,201 @@ mod tests {
         // is the rule `(.a.b)?` already established.
         assert!(run("length?", "true").is_empty(), "`?` catches the builtin");
         assert!(run("keys?", "1").is_empty(), "the same for `keys`");
+    }
+
+    #[test]
+    fn first_and_last_are_the_first_and_last_index() {
+        assert_eq!(run("first", "[1,2,3]"), vec!["1"]);
+        assert_eq!(run("last", "[1,2,3]"), vec!["3"]);
+        // `.[0]` and `.[-1]` down to the details: an empty array and null both
+        // answer null instead of failing, and the refusals are the indexing
+        // refusals rather than anything new. All measured.
+        assert_eq!(run("first", "[]"), vec!["null"]);
+        assert_eq!(run("last", "[]"), vec!["null"]);
+        assert_eq!(run("first", "null"), vec!["null"]);
+        assert_eq!(run("last", "null"), vec!["null"]);
+        assert_eq!(
+            fails("first", r#""abc""#).to_string(),
+            "Cannot index string with number"
+        );
+        assert_eq!(
+            fails("last", r#"{"a":1}"#).to_string(),
+            "Cannot index object with number"
+        );
+        assert_eq!(
+            fails("first", "true").to_string(),
+            "Cannot index boolean with number"
+        );
+    }
+
+    #[test]
+    fn reverse_refuses_a_boolean_for_a_different_reason_than_a_string() {
+        assert_eq!(run("reverse", "[1,2,3]"), vec!["[3,2,1]"]);
+        assert_eq!(run("reverse", "[]"), vec!["[]"]);
+        // Null has length zero, so it reverses rather than failing. Note that this
+        // is not what indexing null does, and both are measured.
+        assert_eq!(run("reverse", "null"), vec!["[]"]);
+        // A boolean meets `length` first and never reaches an index; a string and a
+        // number have a length and are then refused the index. Two different
+        // messages out of one definition.
+        assert_eq!(
+            fails("reverse", "true").to_string(),
+            "boolean (true) has no length"
+        );
+        assert_eq!(
+            fails("reverse", r#""abc""#).to_string(),
+            "Cannot index string with number"
+        );
+        assert_eq!(
+            fails("reverse", "1").to_string(),
+            "Cannot index number with number"
+        );
+    }
+
+    #[test]
+    fn to_entries_keys_an_array_with_numbers_and_an_object_with_strings() {
+        assert_eq!(
+            run("to_entries", r#"{"b":2,"a":1}"#),
+            vec![r#"[{"key":"b","value":2},{"key":"a","value":1}]"#]
+        );
+        assert_eq!(run("to_entries", "{}"), vec!["[]"]);
+        // The key is the number 0, not the string "0". Either would have looked
+        // right; this one was measured.
+        assert_eq!(
+            run("to_entries", "[10,20]"),
+            vec![r#"[{"key":0,"value":10},{"key":1,"value":20}]"#]
+        );
+        assert_eq!(run("to_entries", "[]"), vec!["[]"]);
+        // The same refusal `keys` gives, because jq defines this filter in terms of
+        // `keys_unsorted`.
+        assert_eq!(
+            fails("to_entries", "null").to_string(),
+            "null (null) has no keys"
+        );
+        assert_eq!(
+            fails("to_entries", "true"),
+            EvalError::NoKeys {
+                found: "boolean",
+                shown: "true".to_owned()
+            }
+        );
+    }
+
+    #[test]
+    fn from_entries_is_as_strict_as_jq_about_what_an_entry_is() {
+        assert_eq!(
+            run("from_entries", r#"[{"key":"a","value":1}]"#),
+            vec![r#"{"a":1}"#]
+        );
+        // Not measured against jq, and true by construction: an empty input
+        // reduces onto the empty object.
+        assert_eq!(run("from_entries", "[]"), vec!["{}"]);
+        // jq 1.8.1 accepts neither the short spellings nor a two-element array, and
+        // refuses a key that is not a string instead of converting it. All three
+        // messages are the ones jq printed, and the first two are messages this
+        // language already had.
+        assert_eq!(
+            fails("from_entries", r#"[{"k":"a","v":1}]"#).to_string(),
+            "Cannot use null (null) as object key"
+        );
+        assert_eq!(
+            fails("from_entries", r#"[["a",1]]"#).to_string(),
+            r#"Cannot index array with string "key""#
+        );
+        assert_eq!(
+            fails("from_entries", r#"[{"key":0,"value":1}]"#).to_string(),
+            "Cannot use number (0) as object key"
+        );
+        assert_eq!(
+            fails("from_entries", "null").to_string(),
+            "Cannot iterate over null (null)"
+        );
+    }
+
+    #[test]
+    fn from_entries_lets_the_last_value_win_at_the_first_keys_position() {
+        // The same rule the parser applies to a duplicate key in a document, for
+        // the same reason: one object cannot hold a key twice, and the position a
+        // reader saw first is the one worth keeping.
+        assert_eq!(
+            run(
+                "from_entries",
+                r#"[{"key":"a","value":1},{"key":"b","value":2},{"key":"a","value":3}]"#
+            ),
+            vec![r#"{"a":3,"b":2}"#]
+        );
+    }
+
+    #[test]
+    fn to_entries_and_from_entries_invert_each_other_only_for_an_object() {
+        assert_eq!(
+            run("to_entries | from_entries", r#"{"b":2,"a":1}"#),
+            vec![r#"{"b":2,"a":1}"#]
+        );
+        // An array's entries are keyed by numbers, and numbers are not object
+        // keys, so the pair is an inverse exactly where jq's own pair is.
+        assert_eq!(
+            fails("to_entries | from_entries", "[10,20]").to_string(),
+            "Cannot use number (0) as object key"
+        );
+    }
+
+    #[test]
+    fn not_follows_jqs_truthiness_where_only_null_and_false_are_false() {
+        assert_eq!(run("not", "null"), vec!["true"]);
+        assert_eq!(run("not", "false"), vec!["true"]);
+        assert_eq!(run("not", "true"), vec!["false"]);
+        // The four that catch people out: zero, the empty string, the empty array
+        // and the empty object are all true in jq. All four measured.
+        assert_eq!(run("not", "0"), vec!["false"]);
+        assert_eq!(run("not", r#""""#), vec!["false"]);
+        assert_eq!(run("not", "[]"), vec!["false"]);
+        assert_eq!(run("not", "{}"), vec!["false"]);
+        // Total on every input, like `type` and unlike the other nine.
+        assert_eq!(run("not | not", "0"), vec!["true"]);
+    }
+
+    #[test]
+    fn flatten_goes_all_the_way_down_and_leaves_objects_alone() {
+        assert_eq!(run("flatten", "[[1,[2]],3]"), vec!["[1,2,3]"]);
+        assert_eq!(run("flatten", "[[[[1]]]]"), vec!["[1]"]);
+        assert_eq!(run("flatten", "[[]]"), vec!["[]"]);
+        assert_eq!(run("flatten", "[]"), vec!["[]"]);
+        // An object element survives whole; only arrays are opened.
+        assert_eq!(run("flatten", r#"[{"a":[1]}]"#), vec![r#"[{"a":[1]}]"#]);
+        // An object *input* is iterated for its values, because jq's definition
+        // begins with `.[]`. Measured rather than assumed.
+        assert_eq!(run("flatten", r#"{"a":1}"#), vec!["[1]"]);
+        assert_eq!(
+            fails("flatten", "null").to_string(),
+            "Cannot iterate over null (null)"
+        );
+        assert_eq!(
+            fails("flatten", "1").to_string(),
+            "Cannot iterate over number (1)"
+        );
+    }
+
+    #[test]
+    fn the_builtin_roster_is_sorted_and_every_name_resolves_back_to_itself() {
+        let names: Vec<&str> = Builtin::ALL.iter().map(|which| which.name()).collect();
+        let mut sorted = names.clone();
+        sorted.sort_unstable();
+        assert_eq!(
+            names, sorted,
+            "`ALL` is what renders the unknown-filter message, so it is kept sorted"
+        );
+        assert_eq!(
+            names.len(),
+            11,
+            "eleven builtins, and the roster is the count"
+        );
+        for name in &names {
+            assert_eq!(Builtin::from_name(name).map(Builtin::name), Some(*name));
+        }
+        // The two most likely wrong guesses, and neither is here: both take a
+        // filter as an argument, and every name in the roster is bare.
+        assert_eq!(Builtin::from_name("map"), None);
+        assert_eq!(Builtin::from_name("select"), None);
     }
 }
