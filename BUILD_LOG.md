@@ -299,6 +299,14 @@ by it, here, now.
 
     reproducible
 
+That transcript is from commit 34. Its digest and its byte count are a measurement of
+a run rather than a constant this project promises: thirty-one commits of source
+landed after it, and the same harness on the same machine at commit 65 returns
+`ade5b0db` and 490336 bytes. What the four assertions below establish is
+reproducibility of the recipe -- same source, same toolchain, same bytes -- and they
+are re-run and re-passed on every commit. The two figures are reconciled at the foot
+of this file, in the section on the pre-freeze pass that measured the newer one.
+
 Two of the four assertions exist only to give the other two meaning. The control
 inverts `debug` and `strip` and is required to produce a *different* hash,
 because a checker that cannot fail is not evidence. And the leak scan begins by
@@ -1784,3 +1792,45 @@ than 1.9. The fifth sample widened the spread that paragraph exists to warn abou
 instead of contradicting it, which is the argument it was already making. The
 published figure stays the run that produced it, and that rule costs something only
 on a day when the newest sample is the fastest, which is what this day was.
+
+## The pre-freeze pass at commit 65, and what the published digest is worth
+
+The gate ran clean at commit 65: 61 checks, none wrong, no stage short, in 1.4
+minutes. Every figure a submission quotes came out of that one run -- 191 tests
+passing and none failing, 95 of 95 documents accepted and 188 of 188 rejected, 62
+differential comparisons agreeing byte for byte with jq 1.8.1 and none disagreeing,
+35 stdlib substitutions all present, and `+11 of a possible +16` in bonuses -- and a
+shallow clone of `origin` built and passed all 191 tests offline before being
+removed again.
+
+One figure came out different, and it is the one this file publishes. The
+reproducible-build harness returned
+`ade5b0dba26b707495c8f3098b5bde748e7b0891602e48e0f3ba42fb76ff9558` at 490336 bytes,
+where the transcript near the top recorded
+`46df3c5524e7e26ff84fd830a1047d555c6f1cd1e1ff8162878f99911a2a885e` at 468704
+instead. All four assertions passed either way: the two unequal-length build paths
+agreed with each other, the inverted control differed as it must, the leak scan
+found nothing over six needles, and the two sizes were equal. Nothing about
+reproducibility failed. Thirty-one commits of source landed between the two runs,
+and a larger program compiles to a larger binary.
+
+That is worth stating plainly, because this file has already drawn a stronger
+conclusion from a weaker run. The earlier pre-freeze section records that the
+harness "returned the same constant and the same 468704 bytes it returned two days
+earlier, on a different boot of the same machine, which is the first evidence in
+this log that the published constant is stable across days and not merely within one
+sitting." That is true of the runs it describes, and the inference is narrower than
+it reads: the constant is stable across days for source that has not changed. No
+commit had intervened, so it was never evidence about a constant surviving one.
+
+So the recipe is the claim and the digest is a dated sample. Identical source plus
+identical rustc version plus identical host toolchain give identical bytes; the first
+is what a clone pins, the second is pinned by `rust-toolchain.toml`, and the third is
+neither pinned nor pinnable, which is why the recorded digest has never been gated
+and why CI reports it rather than asserting it. Somebody who clones this tree today
+and runs the verify line gets `ade5b0db` from the same four assertions that gave
+`46df3c55` on the day that one was measured, and both runs are the same result.
+
+`tests/claims.rs` now also requires every digest row 22 of `CLAIMS.md` cites to be
+recorded in this file, so the ledger cannot quote a hash from a run this log never
+saw. Row 22 carries both digests and the commit each belongs to.

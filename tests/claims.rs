@@ -416,6 +416,11 @@ fn the_readme_states_every_limit_the_code_enforces() {
 /// thirty-two bytes of nothing in particular, and no test can tell a measured
 /// one from an invented one. The run is linked in that section for the reader
 /// who wants to check, which is the honest division of labour.
+///
+/// It also holds the ledger to this file. Row 22 of `CLAIMS.md` cites three of
+/// these digests in eight-character form, and each has to be recorded here: a
+/// ledger quoting a hash from a run this log never saw is the same defect as a
+/// mistyped digit, one document further out.
 #[test]
 fn the_hashes_recorded_in_the_build_log_agree() {
     fn is_sha(token: &str) -> bool {
@@ -525,8 +530,38 @@ fn the_hashes_recorded_in_the_build_log_agree() {
         "the scan found {sizes} size(s) for this binary, so it has stopped finding them"
     );
 
+    // Row 22 of the ledger cites digests out of this file, abbreviated to eight
+    // characters. One it cites that is not recorded here is either a transcription
+    // slip or a figure from a run this log never saw, and nothing in the ledger
+    // itself can tell those apart.
+    let ledger = read("CLAIMS.md");
+    let row = ledger
+        .lines()
+        .find(|line| line.starts_with("| 22 |"))
+        .expect("CLAIMS.md no longer has a row 22");
+    let mut cited = 0;
+    for piece in row.split('`') {
+        if piece.len() < 8 || !piece.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+            continue;
+        }
+        cited += 1;
+        assert!(
+            log.contains(piece),
+            "row 22 of CLAIMS.md cites the digest {piece}, which BUILD_LOG.md does \
+             not record"
+        );
+    }
+    // Three: this laptop before and after the source grew, and the runner. A count
+    // that fell would mean the ledger had stopped citing and this had stopped
+    // checking, which is how the size scan above came to be written too.
+    assert_eq!(
+        cited, 3,
+        "row 22 of CLAIMS.md cites {cited} digests, so this check no longer reads it"
+    );
+
     println!(
-        "BUILD_LOG HASHES: local {}, runner {}, control differs, {sizes} sizes agree",
+        "BUILD_LOG HASHES: local {}, runner {}, control differs, {sizes} sizes agree, \
+         {cited} ledger digests recorded",
         &published[..8],
         &attempt_1[..8]
     );
