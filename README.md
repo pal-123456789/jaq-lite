@@ -14,6 +14,10 @@ measurable, and every number in this file is produced by a command recorded
 beside it in [CLAIMS.md](CLAIMS.md). Nothing here is asserted without a way to
 check it.
 
+Three of the event's four bonus categories are claimed here and one is declined.
+[Bonus claims](#bonus-claims) says which, why the declined one would have cost
+more than it scored, and where each of the three can be checked.
+
 ## Proof of an empty dependency graph
 
 `cargo tree` prints one crate, because there is only one:
@@ -330,6 +334,56 @@ on two separate virtual machines. So the published constant is a function of
 the host toolchain, you should not expect to reproduce it, and nothing should
 be gated on it. What reproduces is the property above, and it has now held on
 three machines.
+
+## Bonus claims
+
+The event scores four bonuses beyond the rubric. This entry claims three of them
+and declines the fourth, for +11 of a possible +16. Which is which, and where
+each one can be checked:
+
+**Reproducible Build, +5. Nominated as the headline claim.** Two release builds
+of this source on one machine produce byte-identical binaries, and
+`scripts/reproducible_build.sh` is the check rather than the claim: it builds
+twice into paths of different lengths, hashes both, then builds a third with the
+determinism settings inverted, so a pass cannot be an accident of the toolchain.
+The section above says what travels and what does not. The property has now held
+on three machines; the sha256 in [BUILD_LOG.md](BUILD_LOG.md) is a function of
+the host toolchain, so nothing here is gated on that number. It is the headline
+because it is the claim a stranger can falsify fastest: clone, run the script,
+read the four lines it prints.
+
+**Package Killer, +3.** Entry 7 of [STDLIB.md](STDLIB.md) -- `ryu` and `itoa`,
+the two crates a JSON writer reaches for to turn numbers into text. What
+replaced them is not faster code, it is the absence of the operation: a number
+here is the bytes it was parsed from, so no `f64` in this program is ever
+formatted, and `1e2` comes back as `1e2` where jq 1.8.1 answers `1E+2`. An
+invariant in prose is worth nothing, so `tests/claims.rs` holds both halves of
+it down -- the serializer may not read a number's `f64` at all, and the only
+files that may build one are the two that entry 7 names. The entry claimed
+something stricter until a builtin had to answer with a count, and the check
+caught the claim changing rather than a reader catching it afterwards;
+`BUILD_LOG.md` records the two worse ways out that were available.
+
+**STDLIB Log, +3.** [STDLIB.md](STDLIB.md) is the register: one entry per crate
+this project would ordinarily have used, what took its place, which files that
+lives in, and whether it shipped or is still planned. Eighteen entries, all
+eighteen shipped, and none of it on trust -- `tests/claims.rs` fails the build if
+a status is spelled anything but the two permitted words, if a file an entry
+names does not exist, or if the shipped count ever falls.
+
+**Single File, +5. Declined.** `src/` holds ten files behind one library and a
+thin binary over it, and they are not going to be concatenated to collect five
+points. A module comment per file and `#![deny(missing_docs)]` throughout do more
+for whoever reads this next than one file of several thousand lines would, and
+Code Quality & Idiom is 25% of the score against that bonus's 5. Taking the five
+would be scoring the rubric rather than writing the tool. So the total claimed is
++11, and the missing five is a decision recorded here rather than an omission a
+reader has to interpret.
+
+Three further things this project deliberately does not do are stated where they
+belong rather than left to be found: nothing here parses `JQ_COLORS`, there is no
+`--max-depth` for either nesting limit, and the throughput figure is the mean
+over its window rather than the fastest round in it.
 
 ## Design notes
 

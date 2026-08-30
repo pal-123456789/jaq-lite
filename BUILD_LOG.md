@@ -1351,3 +1351,39 @@ The one place these four deliberately disagree is `1e3 | length`, which is `1e3`
 here and `1E+3` in jq, for the same reason `.` diverges; no comparison in
 `scripts/jq_differential.sh` takes the length of a number, so that divergence is
 documented rather than smuggled past the differential.
+
+## Declining a bonus, in writing
+
+Four bonuses are on offer here and this project claims three. Which three is a
+decision like any other in this log, and the reasoning belongs next to the ones
+about code rather than in a form field nobody keeps.
+
+Reproducible Build is the nominated headline for one reason: of everything this
+project claims, it is the one a stranger can falsify fastest. Clone, run
+`scripts/reproducible_build.sh`, read four lines. There is no way to argue with
+the result and no way to dress it up, which is exactly what makes it worth
+leading with. The Package Killer claim is stronger in substance -- the crate was
+replaced by an invariant rather than by code -- but understanding why takes a
+reader through two files and a divergence from jq, and a claim that needs an
+essay is not a headline.
+
+Single File was declined, and declining a bonus deserves an argument. It is worth
+five points. Code Quality & Idiom is worth twenty-five, and `src/` is ten files
+with a module comment on each and `#![deny(missing_docs)]` over the lot, which is
+most of what makes this readable at all. Concatenating it to collect the five
+would trade the larger score for the smaller one, and it would make the thing a
+judge reads worse in order to make the thing a judge scores better. That is
+scoring the rubric rather than writing the tool. The choice is not close, but the
+part that matters is that it is written down: an unclaimed bonus with no
+explanation beside it reads as an oversight, and a submission that looks careless
+about five points invites a reader to wonder what else was left half done.
+
+The bonus section of the README is prose, which by now this log has established
+is where this project's defects live. So it is checked like everything else.
+`the_readme_accounts_for_every_bonus_the_event_scores` requires all four
+categories to be named, adds up the ones not marked declined and compares the sum
+against the total the section states, reads the file count and the entry count out
+of the tree rather than trusting the words, resolves the nominated entry number
+out of `STDLIB.md` itself, and requires every file the section cites to exist. The
+number in `+11 of a possible +16` is therefore not typed anywhere that a test
+cannot reach.

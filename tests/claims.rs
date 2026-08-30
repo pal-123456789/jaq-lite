@@ -19,9 +19,9 @@
 //! wrong: that no number this program reads is ever reformatted, and that the
 //! only numbers it builds itself are the counts a builtin answers with, in the
 //! two files entry 7 permits. How many there are is deliberately not written
-//! down here: a
-//! numeral in a doc comment that has to track the `#[test]` items below it is
-//! one more sentence that can go stale, which is this file's own subject.
+//! down here: a numeral in a doc comment that has to track the `#[test]` items
+//! below it is one more sentence that can go stale, which is this file's own
+//! subject.
 //!
 //! Some tests here are not about `STDLIB.md` at all. `BUILD_LOG.md` publishes a
 //! sha256 a reader is invited to reproduce, and quotes the hashes the harness
@@ -30,7 +30,12 @@
 //! no reviewer catches. `README.md` quotes four assertion lines out of
 //! `scripts/reproducible_build.sh`, and quoted text drifts, so those phrases are
 //! required to appear in both files or the test fails in the commit that moved
-//! one of them. Both belong beside the others rather than in files of their own.
+//! one of them. The README also accounts for all four bonuses the event scores,
+//! including the one this entry declines, and names the `STDLIB.md` entry it
+//! nominates as its Package Killer; that number is read back out of the document
+//! rather than believed, because a nomination that moves and a README that does
+//! not is this file's subject over again. All of it belongs beside the others
+//! rather than in files of their own.
 //!
 //! What this file cannot do is said plainly rather than left implied. It cannot
 //! tell whether an entry's prose describes the code it points at; only a reader
@@ -603,4 +608,174 @@ fn the_readme_names_the_platforms_it_was_tested_on_and_the_compiler_it_pins() {
     );
 
     println!("README PLATFORMS: two hosts, both on the pinned rustc {pin}");
+}
+
+/// Every bonus the event scores is accounted for, including the one declined.
+///
+/// A bonus claim is unlike the other claims in the README. It is read out of the
+/// document and scored somewhere else, by somebody who cannot see the commit that
+/// changed it, so the failure worth catching here is not a false claim but a stale
+/// one. A category dropped from the list reads as an oversight; a total that no
+/// longer equals the parts it is made of reads as arithmetic nobody redid; and a
+/// nomination that moves inside `STDLIB.md` while the README goes on naming the
+/// old entry number is the defect this whole file was written for.
+///
+/// So all four names have to be present, the total has to equal the sum of the
+/// ones not marked declined, the two counts the section states in words are read
+/// back out of the tree, the nominated entry number is read out of `STDLIB.md`
+/// rather than believed, and every file the section points at has to exist.
+///
+/// What this cannot check is whether the reasoning in the section is any good, or
+/// whether the bonuses named here are the ones the event actually offers.
+#[test]
+fn the_readme_accounts_for_every_bonus_the_event_scores() {
+    // Small numbers as the section spells them, which is in words.
+    const WORDS: &[&str] = &[
+        "zero",
+        "one",
+        "two",
+        "three",
+        "four",
+        "five",
+        "six",
+        "seven",
+        "eight",
+        "nine",
+        "ten",
+        "eleven",
+        "twelve",
+        "thirteen",
+        "fourteen",
+        "fifteen",
+        "sixteen",
+        "seventeen",
+        "eighteen",
+        "nineteen",
+        "twenty",
+    ];
+
+    // A number spelled in prose has to stand on its own: digits and words alike
+    // are substrings of other words, and `ten` inside `written` is not a claim.
+    fn stands_alone(text: &str, word: &str) -> bool {
+        let attached = |c: char| c.is_ascii_alphanumeric() || c == '_';
+        text.match_indices(word).any(|(at, found)| {
+            !text[..at].chars().next_back().is_some_and(attached)
+                && !text[at + found.len()..]
+                    .chars()
+                    .next()
+                    .is_some_and(attached)
+        })
+    }
+
+    let readme = read("README.md");
+    let opening = "## Bonus claims";
+    let start = readme
+        .find(opening)
+        .unwrap_or_else(|| panic!("the README no longer carries a {opening} section"));
+    // Up to the next heading, so no later section can satisfy these assertions on
+    // the bonus section's behalf.
+    let section = readme[start + opening.len()..]
+        .split("\n## ")
+        .next()
+        .unwrap_or_default();
+
+    let mut claimed = 0usize;
+    let mut offered = 0usize;
+    for name in [
+        "Reproducible Build",
+        "Package Killer",
+        "STDLIB Log",
+        "Single File",
+    ] {
+        let marker = format!("**{name}, +");
+        let at = section
+            .find(&marker)
+            .unwrap_or_else(|| panic!("the bonus section no longer names {name}"))
+            + marker.len();
+        let digits: String = section[at..]
+            .chars()
+            .take_while(|c| c.is_ascii_digit())
+            .collect();
+        let points: usize = digits
+            .parse()
+            .unwrap_or_else(|_| panic!("{name} no longer states its points as a number"));
+        // Whether this one is claimed is decided by the word, not by a list here:
+        // a category moving between claimed and declined is a prose edit, and the
+        // arithmetic below has to follow it without anybody remembering to.
+        let head: String = section[at..].chars().take(digits.len() + 40).collect();
+        if !head.contains("Declined") {
+            claimed += points;
+        }
+        offered += points;
+    }
+    let arithmetic = format!("+{claimed} of a possible +{offered}");
+    assert!(
+        section.contains(&arithmetic),
+        "the four categories in the bonus section add up to {arithmetic}, which is not \
+         the total it states"
+    );
+
+    // Two counts the section states in words. Both are read out of the tree, so
+    // adding a source file or an entry fails here rather than leaving a number in
+    // the README that was true last week.
+    for (count, what) in [
+        (source_files().len(), "files under src/"),
+        (ENTRIES, "entries in STDLIB.md"),
+    ] {
+        let word = WORDS
+            .get(count)
+            .copied()
+            .unwrap_or_else(|| panic!("{count} {what} is past the end of this test's words"));
+        assert!(
+            stands_alone(section, word),
+            "there are {count} {what} and the bonus section does not say {word}"
+        );
+    }
+
+    // The nominated entry number, read out of the document that nominates it.
+    let stdlib = read("STDLIB.md");
+    let nomination = "This is the nominated Package Killer.";
+    let nominated = stdlib.matches(nomination).count();
+    assert_eq!(
+        nominated, 1,
+        "{nominated} entries of STDLIB.md claim to be the nominated Package Killer"
+    );
+    let at = stdlib.find(nomination).unwrap_or_default();
+    let entry = stdlib[..at]
+        .lines()
+        .rev()
+        .find_map(|line| line.split_once(". **Normally:**"))
+        .and_then(|(number, _)| number.parse::<usize>().ok())
+        .expect("the nomination is not inside a numbered entry of STDLIB.md");
+    assert!(
+        section.contains(&format!("Entry {entry} of ")),
+        "STDLIB.md nominates entry {entry} and the bonus section names a different one"
+    );
+
+    // And every file it points at, because a claim that cites its own evidence is
+    // only worth as much as the citation.
+    let mut paths = 0;
+    for span in section.split('`').skip(1).step_by(2) {
+        if span.contains(' ')
+            || ![".md", ".rs", ".sh", ".toml"]
+                .iter()
+                .any(|e| span.ends_with(*e))
+        {
+            continue;
+        }
+        assert!(
+            root().join(span).exists(),
+            "the bonus section points at {span}, which does not exist"
+        );
+        paths += 1;
+    }
+    assert!(
+        paths >= 3,
+        "the bonus section names {paths} file(s), so it has stopped pointing at its evidence"
+    );
+
+    println!(
+        "README BONUSES: +{claimed} of a possible +{offered}, entry {entry} nominated, \
+         {paths} paths named"
+    );
 }
