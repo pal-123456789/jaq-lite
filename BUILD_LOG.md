@@ -1387,3 +1387,74 @@ of the tree rather than trusting the words, resolves the nominated entry number
 out of `STDLIB.md` itself, and requires every file the section cites to exist. The
 number in `+11 of a possible +16` is therefore not typed anywhere that a test
 cannot reach.
+
+## The pass that verified nothing, and two checks wrong about a correct tree
+
+The pre-freeze pass is sixty-one checks over provenance, the dependency graph, the
+tracked tree, the gate as CI runs it, both shell harnesses under WSL, and a shallow
+clone of `origin` built and tested from scratch. It is not in this repository, and
+the reason is worth stating: its job is to grep the tracked tree for this machine's
+own paths, so it contains them, and shipping it would plant the needle it looks
+for. What it verifies is here. What does the verifying cannot be.
+
+Its first run reported `0 checks, 0 wrong` and then printed that the pass was
+clean. The helper that appended a row to the results table was named `R`, and `R`
+is a built-in alias for `Invoke-History`: PowerShell resolves aliases ahead of
+functions, so all fifty-seven checks bound their arguments to the wrong command,
+failed one by one, and appended nothing. A table with no rows in it has no failing
+rows in it either. The alias is not really the defect -- the defect is that the
+report trusted its own emptiness, and a green result over an empty table is the
+worst outcome a verification pass can have, because it is indistinguishable from
+work. Each stage now declares the fewest rows it can legitimately produce and the
+report checks those floors before it reads a single row, which is the construction
+`tests/conformance.rs` already uses to stop a corpus it could not find from
+passing as a corpus with nothing wrong in it.
+
+The repaired run failed two rows, and both were the checks rather than the tree.
+One demanded that no tracked file carry CRLF, of a tree whose corpus carries it on
+purpose: `.gitattributes` marks `tests/fixtures/** -text` because the exact bytes
+are the test, and four of the `real_world/` documents were written by PowerShell
+and arrived with CRLF endings that have to survive in order to be round-tripped.
+That row now asserts that nothing outside `tests/fixtures/` carries CRLF, that
+exactly five files inside it do, and that git was told to leave each of the five
+alone -- three statements where there was one, and the replacement is the stronger
+claim. The other read a figure off the wrong build: `committed_floor()` returns 1
+under `cfg!(debug_assertions)` and 5 without it, the figures in the README come
+from the release invocation row 18 of `CLAIMS.md` names, and the pass was running
+the debug target and comparing what it printed against the release numbers.
+
+That is the third time in this project that a hygiene check has fired on the very
+artifact whose existence guarantees the property being checked, after the leak scan
+matching its own needle list and the check that fired on the day it was written
+for. The pattern has earned a name: a check that forbids a thing has to know which
+instances of that thing are the mechanism, and the repair is always to name the
+exception inside the check rather than to loosen what the check demands. A check
+loosened until it stops complaining is a check that has stopped working, whereas a
+check that lists its exceptions fails again the day the list goes stale.
+
+For the record, the pass establishes this: `HEAD` equals `origin/main`, the first
+commit lands after the kickoff, 389 files are tracked of which 352 are fixtures,
+the dependency graph has one node in it, 178 tests pass and none fail, 95 of 95
+documents are accepted and 188 of 188 rejected under the floors CI sets, fourteen
+differential comparisons agree byte for byte with jq 1.8.1, and a shallow clone of
+`origin` builds and passes all 178 tests offline before being removed again. The
+reproducible-build harness returned the same constant and the same 482640 bytes it
+returned two days earlier, on a different boot of the same machine, which is the
+first evidence in this log that the published constant is stable across days and
+not merely within one sitting.
+
+The pass ran twice inside the hour, on source that had not changed since the
+README's figures were substituted in two days earlier. The first run printed 27.0
+MiB/s for parsing and 143.5 for serializing; the second printed 34.2 and 206.5.
+Set beside the 26.5 and 197.9 already in the document, three samples of one binary
+span twenty-nine per cent for parsing and forty-four for serializing, and the
+serialize figure fell twenty-seven per cent below the published one before rising
+four per cent past it. None of the three is a defect and none of them needs
+fixing. What they settle between them is whether a release floor of 5 MiB/s is too
+generous to be worth asserting: a floor set just under 197.9 would have failed the
+first of these runs, on this machine, on unchanged code, two days after being set.
+`CLAIMS.md` row 18 and the README now quote all three, because a band a reader
+lands inside is a claim that reproduces where a single number is one that does
+not. The two figures in the README's own speed block stay as the run that produced
+them rather than being replaced with the best of the three, which is the rule that
+already governs reporting the mean of the window instead of its fastest round.

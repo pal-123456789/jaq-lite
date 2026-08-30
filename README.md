@@ -289,6 +289,14 @@ the fastest round in it: interference only ever slows a round down, so the faste
 round is the flattering one to report and it is not what a caller gets. Both runs
 are in [BUILD_LOG.md](BUILD_LOG.md).
 
+Two further runs of this binary, days later on a different boot of the same
+machine, printed 27.0 and 143.5 MiB/s and then 34.2 and 206.5, from source that
+had not changed in between. Three samples span twenty-nine per cent for parsing
+and forty-four for serializing, and the serialize figure fell twenty-seven per
+cent below the number above before rising four per cent past it. The figures above
+stay as the run that produced them rather than as the best of the three, for the
+same reason the mean of the window is reported and not the fastest round in it.
+
 The document is built by the test rather than read from `tests/fixtures`, because
 the 95 corpus documents that must parse total 1190 bytes between them: timing
 those would measure the cost of calling a function 95 times.
