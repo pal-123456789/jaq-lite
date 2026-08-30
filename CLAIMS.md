@@ -27,7 +27,7 @@ row says otherwise.
 | 15 | The jq comparison is against a real jq | `wsl --exec jq --version` | `jq-1.8.1` |
 | 16 | jq re-renders numbers where this project preserves them | `jq -c . <<< 1e2` | `1E+2` against `1e2` here |
 | 17 | A stream with one failing document exits non-zero here | `jaq-lite -c .a <<< '1 {"a":2}'` | exit 5, where jq exits 0 |
-| 18 | Parsing and serializing clear the floor a release build asserts | `cargo test --release --test throughput -- --nocapture --test-threads=1` | 3 passing; four runs printed parse 17.7 to 34.2 MiB/s and serialize 143.5 to 206.5, every one clearing the committed floor of 5 |
+| 18 | Parsing and serializing clear the floor a release build asserts | `cargo test --release --test throughput -- --nocapture --test-threads=1` | 3 passing; five runs printed parse 17.7 to 41.8 MiB/s and serialize 143.5 to 228.5, every one clearing the committed floor of 5 |
 | 19 | A document over a megabyte survives parse and to_string identically | `cargo test --test throughput` | 1196671 bytes in, the reparsed value identical |
 | 20 | The query language behaves as its table says, and the table covers every way a filter can fail | `cargo test --test query -- --nocapture --test-threads=1` | 6 passing, 101 rows written out and 1 built, 15 named failures, 74 values round tripped, and 59 of those rows calling one of the eleven builtins by name |
 | 21 | The README names both nesting caps the code enforces, and the lookup cost `src/value.rs` says it states | `cargo test --test claims -- --nocapture --test-threads=1` | caps 128 and 64 named, lookup cost stated |

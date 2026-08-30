@@ -1720,3 +1720,67 @@ this week was decoration rather than claim -- a pass count beside a row about a
 platforms table, a size beside a hash, a heading above a list. The claims were
 checked because they looked like claims. Nothing looks less like a claim than a
 number in an aside, and nothing rots faster.
+
+## Two defects that hid each other
+
+The pre-freeze pass read six checks wrong. Five were stale equalities in the gate
+itself -- a suite of 191 against a pin of 178, and four more like it -- and the
+sixth was `scripts/jq_differential.sh` exiting 1 with 48 of its 62 comparisons
+disagreeing. Every disagreement was a builtin, every message was the same `cannot
+appear here`, and the 14 comparisons that agreed were exactly the 14 that call no
+builtin at all. A parser that rejects a bare `type` at column 1 is not this source:
+`tests/query.rs` has 101 rows over that language and they were green in the same
+run.
+
+So it was the binary. This checkout sits on a drive both toolchains can see -- the
+Windows one writes `jaq-lite.exe`, a Linux one writes `jaq-lite` -- and the script
+decided whether to build with `if [ ! -x "$bin" ]`. The file at that path was a
+471824-byte ELF from the previous evening: executable, therefore trusted. What the
+current source builds is 490336 bytes, which is also the size
+`reproducible_build.sh` had hashed hours earlier the same morning. Both numbers
+were in one transcript, and nothing read them together. Rebuilding took the count
+to 62 of 62 agreeing.
+
+That 490336 is not the 468704 published further up this file, and neither figure is
+a typo. The harness transcript above is older than the code: it recorded what the
+source built on the day it ran, and the source has grown since. The section quoting
+it already says the constant belongs to the host toolchain and that nothing should
+be gated on it, which is why nothing is -- but somebody running the harness on this
+machine today gets 490336 bytes and a different sha256, so the pairing is written
+down here instead of left to be found. `tests/claims.rs` holds every size this log
+states for its own binary to the one it publishes, and now names these two as the
+deliberate exceptions, so a third cannot arrive quietly.
+
+The first probe did not establish that. It tried to rebuild through
+`wsl --exec bash -c "cd ... && cargo build --release"`, got `cargo: command not
+found` and exit 127, left the ELF untouched at its old size and mtime -- and then
+announced that the diagnosis was wrong, because its closing test was the
+differential's exit code and never its own rebuild's. A probe that does not check
+its precondition reports a failed experiment as a result, which is worse than
+reporting nothing.
+
+That failure was the second defect, and it was in the script too.
+`scripts/reproducible_build.sh` has carried the note since the first run it lost to
+this: rustup installs cargo into `~/.cargo/bin`, a login profile is what puts that
+on PATH, and `wsl --exec bash script.sh` is neither login nor interactive. It
+resolves cargo for itself. `jq_differential.sh` never inherited the preamble, so
+its one `cargo build` line could not have run from WSL at all. Neither defect could
+surface while the other stood: the stale binary was executable, so the build line
+was never reached, and on a CI runner cargo is already on PATH, so the missing
+preamble never cost anything there.
+
+Both are fixed in the script rather than in a test about the script. It builds on
+the default path every time and lets cargo decide whether there is work; it
+resolves cargo the way its sibling does; and before comparing anything it asks the
+binary in front of it for each of the eleven names on its own `BUILTINS` line,
+reading exit 3 -- EXIT_FILTER, a filter that does not compile -- as the answer no.
+A binary that does not know the roster now fails with one line naming the cause
+instead of forty-eight naming the symptom, which also covers the one case this
+script cannot rebuild for the caller: a `JAQ_LITE_BIN` that has gone stale.
+
+The same pass measured parse at 41.8 MiB/s, above all four samples the README's
+speed paragraph enumerated, so it now reports five and spans a factor of 2.4 rather
+than 1.9. The fifth sample widened the spread that paragraph exists to warn about
+instead of contradicting it, which is the argument it was already making. The
+published figure stays the run that produced it, and that rule costs something only
+on a day when the newest sample is the fastest, which is what this day was.

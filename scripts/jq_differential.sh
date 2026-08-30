@@ -63,7 +63,10 @@
 # repository claims.
 #
 # Usage:  scripts/jq_differential.sh
-# From:   the repository root, on a machine with jq on PATH.
+# From:   the repository root, on a machine with jq on PATH. It builds the binary
+#         it compares rather than trusting one that is already there, so cargo has
+#         to be reachable as well; JAQ_LITE_BIN names a binary instead, turns the
+#         build off, and is checked against the roster before anything is compared.
 
 set -eu
 
@@ -109,17 +112,79 @@ fi
 theirs_version="$(jq --version)"
 echo "jq            $theirs_version"
 
-if [ ! -x "$bin" ]; then
-  if [ "$bin" != "$default_bin" ]; then
+# Build on the default path every time, and not only when nothing is there. `-x`
+# cannot tell a current binary from one that predates half the language, and this
+# checkout can sit on a drive both toolchains see: a Windows toolchain writes
+# jaq-lite.exe here and a Linux one writes jaq-lite, so the file at this path is
+# whatever the other one last built. On 2026-08-30 that was a 471824-byte ELF from
+# the previous evening; `-x` trusted it, 48 of 62 comparisons disagreed, and every
+# message was `cannot appear here` on a builtin this source implements. cargo is
+# the only thing that knows whether there is work to do, so let it decide, and let
+# it print nothing when there is not.
+if [ "$bin" != "$default_bin" ]; then
+  if [ ! -x "$bin" ]; then
     # An explicit override that does not exist is a mistake worth naming rather
     # than quietly papering over by building somewhere the caller did not ask for.
     echo "JAQ_LITE_BIN was set but names nothing executable."
+    exit 1
+  fi
+  echo "override      JAQ_LITE_BIN, so this script does not build what it compares"
+else
+  # rustup installs cargo into ~/.cargo/bin, and it is a LOGIN profile that puts
+  # that directory on PATH. `wsl --exec bash scripts/jq_differential.sh` is neither
+  # a login nor an interactive shell, so it starts with no cargo at all.
+  # scripts/reproducible_build.sh has resolved that for itself since the first run
+  # it lost to it. This script never inherited the preamble, so the build line
+  # below could not have run from WSL either -- a second defect the first one hid,
+  # because an executable stale binary meant the line was never reached.
+  home="${HOME:-}"
+  [ -n "$home" ] || home="/nonexistent-home-$$"
+  if ! command -v cargo >/dev/null 2>&1; then
+    if [ -f "$home/.cargo/env" ]; then
+      . "$home/.cargo/env"
+    elif [ -x "$home/.cargo/bin/cargo" ]; then
+      PATH="$home/.cargo/bin:$PATH"
+      export PATH
+    fi
+  fi
+  if ! command -v cargo >/dev/null 2>&1; then
+    echo "cargo is not on PATH, and this shell's HOME has neither .cargo/env nor"
+    echo ".cargo/bin/cargo. This script builds what it compares, so it fails here"
+    echo "rather than comparing whatever was left in target/release."
     exit 1
   fi
   echo "building      target/release/jaq-lite"
   cargo build --release --locked --offline >/dev/null
 fi
 echo "jaq-lite      $("$bin" --version)"
+
+# Then ask that binary whether it knows the roster, before comparing anything with
+# it. Forty-eight identical `cannot appear here` lines are one finding printed
+# forty-eight times, and reading them as forty-eight cost most of an evening. Exit
+# 3 is EXIT_FILTER -- a filter that does not compile -- and it does not depend on
+# the input, so `null` is enough to ask each name whether this build has it. The
+# default path was rebuilt above and will pass; an override cannot be rebuilt from
+# here, and that is the case this guard is for.
+unknown=""
+for name in $BUILTINS; do
+  set +e
+  printf 'null' | "$bin" -c "$name" >/dev/null 2>&1
+  asked=$?
+  set -e
+  if [ "$asked" -eq 3 ]; then
+    unknown="$unknown $name"
+  fi
+done
+if [ -n "$unknown" ]; then
+  echo
+  echo "the binary being compared does not compile these builtins:$unknown"
+  echo
+  echo "That is one defect and not one per comparison. Either the binary predates"
+  echo "them -- check JAQ_LITE_BIN, and the mtime of the path printed above -- or"
+  echo "the BUILTINS line here has got ahead of the code, which the test named"
+  echo "the_differential_compares_every_builtin_this_build_has catches first."
+  exit 1
+fi
 
 if [ "$theirs_version" = "$MEASURED_AGAINST" ]; then
   echo "version       the one the README's numbers were measured against"

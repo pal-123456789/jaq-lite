@@ -336,15 +336,20 @@ are in [BUILD_LOG.md](BUILD_LOG.md).
 Three further runs of this binary, two days later and within two hours of one
 another on a different boot of the same machine, printed 27.0, 34.2 and 17.7 MiB/s
 for parsing and 143.5, 206.5 and 162.3 for serializing, from source that had not
-changed between any of them. Four samples of one binary therefore span a factor of
-1.9 for parsing and 1.4 for serializing: the slowest parse fell a third below the
-figure above and the fastest rose twenty-nine per cent over it. None of that is a
-defect being reported. A 500 ms single-threaded window at the start of a test
-binary measures this laptop's clock state about as much as it measures the code,
-and the pass that produced the slowest parse of the four finished every one of its
-other timed steps faster than the pass that produced 27.0. It is why the floor is
-5 rather than 150, and why the figures above stay as the run that produced them
-instead of being replaced with the best of the four.
+changed between any of them. A fifth run, during the pre-freeze pass the following
+day and from a commit that had changed no line under `src/`, printed 41.8 and
+228.5: the fastest parse of the five, measured after this paragraph was written,
+and it widened the spread rather than contradicting it. Five samples of one binary
+therefore span a factor of 2.4 for parsing and 1.6 for serializing: the slowest
+parse fell a third below the figure above and the fastest rose fifty-eight per cent
+over it. None of that is a defect being reported. A 500 ms single-threaded window
+at the start of a test binary measures this laptop's clock state about as much as
+it measures the code, and the pass that produced the slowest parse of the five
+finished every one of its other timed steps faster than the pass that produced
+27.0. It is why the floor is 5 rather than 150, and why the figures above stay as
+the run that produced them instead of being replaced with the best of the five --
+a rule that costs something only on a day when the newest sample is the fastest,
+which is what that day was.
 
 The document is built by the test rather than read from `tests/fixtures`, because
 the 95 corpus documents that must parse total 1190 bytes between them: timing
