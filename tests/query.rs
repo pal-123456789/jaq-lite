@@ -1,13 +1,14 @@
 //! The filter language as one table, read through the public API only.
 //!
-//! `src/query.rs` already tests this language from the inside, twenty-one tests
+//! `src/query.rs` already tests this language from the inside, thirty-one tests
 //! deep, and this file does not repeat them. It is here for three things none of
 //! them can do.
 //!
 //! The first is being readable as a specification. Anyone who wants to know what
 //! this tool's query language does currently has to reconstruct it from
-//! twenty-one assertions spread over two hundred lines. Below it is forty rows of
-//! filter, input and outcome, and the rows are checked on every run, so this
+//! thirty-one assertions spread over four hundred and fifty lines. Below it is
+//! sixty-three rows of filter, input and outcome, and the rows are checked on
+//! every run, so this
 //! specification cannot drift away from the implementation the way a prose one
 //! does.
 //!
@@ -145,13 +146,71 @@ const ROWS: &[(&str, &str, Outcome)] = &[
         "null",
         Rejected("this is not a well-formed string"),
     ),
-    // A bare name is a function call, and no functions exist yet, so it has to
-    // fail rather than quietly do nothing.
-    ("length", "null", Rejected("`length` cannot appear here")),
+    // The four builtins. Every value below was measured against jq 1.8.1 rather
+    // than read out of its manual, and the one row that deliberately disagrees
+    // with jq says so where it sits.
+    ("length", "null", Yields(&["0"])),
+    ("length", r#""abc""#, Yields(&["3"])),
+    ("length", "[1,2,3]", Yields(&["3"])),
+    ("length", r#"{"a":1,"b":2}"#, Yields(&["2"])),
+    // The magnitude, and the literal's own spelling kept. jq answers `1E+3` for
+    // the last of these because a value that passes through one of its builtins
+    // is re-rendered; row 16 of CLAIMS.md is the same divergence for `.`, and it
+    // is why no comparison in `scripts/jq_differential.sh` takes the length of a
+    // number.
+    ("length", "-5", Yields(&["5"])),
+    ("length", "1e3", Yields(&["1e3"])),
+    // Five code points, six bytes. jq counts the five; the byte count is what its
+    // separate `utf8bytelength` reports and this build does not have it.
+    ("length", "\"h\\u00e9llo\"", Yields(&["5"])),
+    ("length", "true", Fails("boolean (true) has no length")),
+    // Sorted by code point, so every capital lands ahead of every lower case.
+    (
+        "keys",
+        r#"{"b":1,"A":2,"a":3,"B":4}"#,
+        Yields(&[r#"["A","B","a","b"]"#]),
+    ),
+    (
+        "keys_unsorted",
+        r#"{"b":1,"A":2,"a":3,"B":4}"#,
+        Yields(&[r#"["b","A","a","B"]"#]),
+    ),
+    ("keys", "[10,20,30]", Yields(&["[0,1,2]"])),
+    // Null is indexable, is not iterable, and has no keys. Three questions that
+    // look alike and get three different answers, all three measured.
+    ("keys", "null", Fails("null (null) has no keys")),
+    ("keys", r#""s""#, Fails(r#"string ("s") has no keys"#)),
+    ("type", "null", Yields(&[r#""null""#])),
+    ("type", "[]", Yields(&[r#""array""#])),
+    ("type", r#"{"a":1}"#, Yields(&[r#""object""#])),
+    // A name is a builtin only at the start of a term, so a key spelled like one
+    // is still reachable. A language that got this wrong would break every
+    // document with a key called `length` in it.
+    (".length", r#"{"length":7}"#, Yields(&["7"])),
+    (".a.length", r#"{"a":{"length":7}}"#, Yields(&["7"])),
+    // A builtin is a term, so the postfix steps apply to what it returned.
+    ("keys[0]", r#"{"b":1,"a":2}"#, Yields(&[r#""a""#])),
+    ("keys | length", r#"{"a":1,"b":2}"#, Yields(&["2"])),
+    ("length, keys", r#"{"a":1}"#, Yields(&["1", r#"["a"]"#])),
+    ("length?", "true", Yields(&[])),
+    (
+        "length.a",
+        r#"{"a":1}"#,
+        Fails(r#"Cannot index number with string "a""#),
+    ),
+    // A bare name that is not one of the four. The message names the four,
+    // because the way anybody arrives here is by misspelling one of them.
+    (
+        "lenght",
+        "null",
+        Rejected(
+            "`lenght` is not a filter; this build has `keys`, `keys_unsorted`, `length` and `type`",
+        ),
+    ),
 ];
 
 /// How many rows the table above has, so that deleting one is a failure.
-const ROW_COUNT: usize = 40;
+const ROW_COUNT: usize = 63;
 
 /// The row whose filter is 131 characters of parentheses, built rather than
 /// written out. Sixty-five of them clears a cap of sixty-four.
@@ -173,9 +232,12 @@ const EXPECTED_TAGS: &[&str] = &[
     "expected specific text",
     "invalid index",
     "invalid string",
+    "no keys",
+    "no length",
     "unexpected byte",
     "unexpected end",
     "unexpected token",
+    "unknown filter",
 ];
 
 /// Name the way a filter failed to compile.
@@ -193,6 +255,7 @@ fn compile_tag(kind: &FilterErrorKind) -> &'static str {
         FilterErrorKind::InvalidString => "invalid string",
         FilterErrorKind::InvalidIndex => "invalid index",
         FilterErrorKind::DepthLimitExceeded { .. } => "depth limit exceeded",
+        FilterErrorKind::UnknownFilter { .. } => "unknown filter",
     }
 }
 
@@ -202,6 +265,8 @@ fn eval_tag(error: &EvalError) -> &'static str {
         EvalError::NotIndexableByName { .. } => "cannot index by name",
         EvalError::NotIndexableByNumber { .. } => "cannot index by number",
         EvalError::NotIterable { .. } => "cannot iterate",
+        EvalError::NoLength { .. } => "no length",
+        EvalError::NoKeys { .. } => "no keys",
     }
 }
 

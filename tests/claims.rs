@@ -15,9 +15,11 @@
 //! So the claims a program can check are checked here, on every run, by anyone
 //! who types `cargo test`. Some are structural -- every file an entry names
 //! exists, every status is one of the two permitted words, the shipped count
-//! never falls -- and one is the substantive claim of the entry that was wrong:
-//! that no number in this program is ever formatted, because none is ever
-//! synthesized. How many there are is deliberately not written down here: a
+//! never falls -- and two are the substantive claims of the entry that was
+//! wrong: that no number this program reads is ever reformatted, and that the
+//! only numbers it builds itself are the counts a builtin answers with, in the
+//! two files entry 7 permits. How many there are is deliberately not written
+//! down here: a
 //! numeral in a doc comment that has to track the `#[test]` items below it is
 //! one more sentence that can go stale, which is this file's own subject.
 //!
@@ -47,11 +49,28 @@ const ENTRIES: usize = 18;
 /// quietly going back to `planned` fails here.
 const SHIPPED_FLOOR: usize = 18;
 
-/// The one file allowed to build a `Number`. This is the substance of entry 7.
-const SYNTHESIS_SITE: &str = "lexer.rs";
+/// The only files allowed to build a `Number`. This is the substance of entry 7.
+///
+/// It was one file until `length` needed to answer with a count. Entry 7 said in
+/// prose that the day a builtin had to print a number this claim would stop being
+/// true out loud rather than quietly, and this is that day: the list grew by one
+/// file, in a commit that says so, instead of the check being deleted.
+const SYNTHESIS_SITES: &[&str] = &["lexer.rs", "value.rs"];
 
 /// How a `Number` is built, spelled as it appears at a call site.
+///
+/// The two constructors in `value.rs` are deliberately written `Number::new(`
+/// rather than `Self::new(`, which is what an idiomatic impl block would use, so
+/// that this grep keeps counting them. A check that a rename can silence is not a
+/// check.
 const SYNTHESIS: &str = "Number::new(";
+
+/// How many call sites there are: one in the lexer, two in `value.rs`.
+const SYNTHESIS_COUNT: usize = 3;
+
+/// The file that must never look at a number's `f64`, which is the half of entry 7
+/// that decides whether a number survives.
+const NEVER_REFORMATS: &str = "src/serializer.rs";
 
 fn root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -117,7 +136,7 @@ fn backtick_spans(field: &str) -> Vec<String> {
 }
 
 #[test]
-fn no_number_is_synthesized_outside_the_lexer() {
+fn numbers_are_synthesized_only_where_entry_7_says_they_are() {
     let mut total = 0usize;
     for path in source_files() {
         let name = path
@@ -131,16 +150,43 @@ fn no_number_is_synthesized_outside_the_lexer() {
             println!("  {count}  {name}");
         }
         assert!(
-            count == 0 || name == SYNTHESIS_SITE,
-            "{name} builds a Number, and entry 7 of STDLIB.md says only {SYNTHESIS_SITE} does"
+            count == 0 || SYNTHESIS_SITES.contains(&name.as_str()),
+            "{name} builds a Number, and entry 7 of STDLIB.md says only {SYNTHESIS_SITES:?} do"
         );
         total += count;
     }
-    println!("SYNTHESIS SITES: {total} (want 1, in {SYNTHESIS_SITE})");
+    println!("SYNTHESIS SITES: {total} (want {SYNTHESIS_COUNT}, in {SYNTHESIS_SITES:?})");
     assert_eq!(
-        total, 1,
-        "entry 7 claims one call site for {SYNTHESIS} and there are {total}"
+        total, SYNTHESIS_COUNT,
+        "entry 7 claims {SYNTHESIS_COUNT} call sites for {SYNTHESIS} and there are {total}"
     );
+}
+
+#[test]
+fn the_serializer_never_reads_a_number_as_a_float() {
+    // The other half of entry 7, and the load-bearing half now that the count of
+    // call sites is three rather than one. A `Number` carries both the bytes it
+    // was read from and an `f64`; the whole substitution for `ryu` is that the
+    // writing path only ever touches the bytes. Counting constructors no longer
+    // proves that on its own, so this asserts it directly: the one file that turns
+    // values into text must not be able to see the float at all.
+    let serializer = read(NEVER_REFORMATS);
+    let looks = serializer.matches("as_f64").count();
+    assert_eq!(
+        looks, 0,
+        "{NEVER_REFORMATS} reads a number's f64 {looks} time(s); entry 7 of STDLIB.md \
+         claims numbers are reproduced from their bytes and never reformatted, and a \
+         float reaching the writer is how that claim would quietly stop being true"
+    );
+    // And the bytes are what it does reach for, so this is a positive claim rather
+    // than only the absence of one.
+    let bytes = serializer.matches("as_str()").count();
+    assert!(
+        bytes > 0,
+        "{NEVER_REFORMATS} no longer reads a number's literal text either, so it is \
+         unclear what it writes"
+    );
+    println!("SERIALIZER: 0 f64 reads, {bytes} literal reads in {NEVER_REFORMATS}");
 }
 
 #[test]

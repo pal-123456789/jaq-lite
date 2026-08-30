@@ -1286,3 +1286,68 @@ project was also a quoting bug at a language boundary: a `cmd` variable assignme
 that silently kept the space in front of `&&`, and a PowerShell redirection that
 turned a subprocess's standard error into error records. Capture the value, then
 check that it looks like the thing you asked for.
+
+## The check that fired on the day it was written for
+
+`length` is the filter people reach for first, and until this commit it was the
+one this tool refused by name. Adding it, along with `keys`, `keys_unsorted` and
+`type`, took an afternoon and broke a test on purpose.
+
+Earlier this log recorded a sentence in entry 7 of `STDLIB.md` that had outlived
+the code it described, and the conclusion drawn there was that the fix is not to
+write code to make a document true. That section ended on a stronger claim -- no
+number is formatted in this program at all, because none is ever synthesized,
+`Number::new` has exactly one call site, and `tests/claims.rs` checks it on every
+run -- and it closed with the observation that the day a builtin did need to print
+a number, the entry would stop being true out loud rather than quietly.
+
+`length` answers with a count. That day was today, and the check behaved as
+advertised: it went red the moment `src/query.rs` learned to build a number, well
+before any of this could be committed, and the entry could not be left alone.
+
+The shape of the resolution is the part worth recording, because there were three
+ways out and two of them were bad. The first bad one is to delete the check. The
+invariant it guards is the nominated Package Killer, so a check that goes away the
+first time it fires was never a check, it was decoration. The second is to hide
+from it: write `Self::new(` in the new constructors instead of `Number::new(`, and
+the grep counts nothing, the suite stays green, and the claim quietly stops being
+true. That option was genuinely available, and it is why the two new constructors
+in `src/value.rs` are deliberately spelled `Number::new(` with a comment saying
+why. A check that a rename can silence is not a check.
+
+The third way is to sharpen the claim, which is what happened. The constant in
+`tests/claims.rs` now names two files and three call sites rather than one and
+one, and that much is only bookkeeping. The substance is that counting
+constructors was always a proxy for the real claim. A `Number` carries both the
+bytes it was read from and an `f64`, and the whole substitution for `ryu` is that
+the writing path only ever touches the bytes -- so the claim worth asserting is
+that the writing path cannot see the float at all.
+`the_serializer_never_reads_a_number_as_a_float` now holds `src/serializer.rs` to
+zero occurrences of `as_f64`, and to at least one of `as_str()` so that it is a
+positive claim rather than only the absence of one. That is the assertion that
+should have been written in the first place, and it took the weaker one firing to
+notice.
+
+One consequence has to be said plainly rather than left for a reader to find.
+Integer formatting does now happen here: the count is a `usize` turned into text
+by `usize::to_string()`. The design note near the top of this log says that after
+the keep-the-bytes decision there is exactly one place in this codebase that
+generates numeric text. There are now two, and this is the second. It uses the
+standard library's own integer formatter, which is the thing `itoa` exists to be
+1.68 times faster than -- measured earlier on this toolchain and recorded above --
+against one count per document, which is not a ratio that buys anything. Float
+formatting still does not happen anywhere at all, and that was always the half of
+this substitution with papers behind it.
+
+The order matters too, and this log is the only place it can be established. The
+builtins were not added to make a sentence true; the entry was rewritten because
+the builtins were added. They are in because a jq-style tool without `length` is a
+demo, and the twenty-four rows in `tests/query.rs` that pin their behaviour were
+measured against jq 1.8.1 in a read-only probe before a line of the implementation
+existed. Three of those measurements contradicted what a reading of the manual
+would have suggested: a string's length is its code points and not its bytes,
+`null` has a length while `true` does not, and an array's `keys` are its indices.
+The one place these four deliberately disagree is `1e3 | length`, which is `1e3`
+here and `1E+3` in jq, for the same reason `.` diverges; no comparison in
+`scripts/jq_differential.sh` takes the length of a number, so that divergence is
+documented rather than smuggled past the differential.

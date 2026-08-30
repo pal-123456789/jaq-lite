@@ -32,9 +32,31 @@
 //! makes `eval` recurse once per step. That is acceptable where unbounded JSON
 //! nesting is not, because a filter is program text the user typed, while a
 //! document is untrusted input that arrived from somewhere else.
+//!
+//! # Builtins
+//!
+//! Four filters are written as bare names rather than as paths: `length`, `keys`,
+//! `keys_unsorted` and `type`. They are the four that ask a value about its own
+//! shape, which is the half of jq this tool is pointed at; nothing here turns a
+//! value into a different one, so there is no `map`, no `select` and no
+//! arithmetic.
+//!
+//! A name is a builtin only at the start of a term. After a `.` the same token is
+//! a field name, so `.length` and `.a.length` still reach a key spelled
+//! `length` -- jq draws the line in the same place, and both were measured.
+//! Postfix steps apply to a builtin's result like any other term, which is why
+//! `keys[0]` is the first key and `length[0]` is an error about indexing a
+//! number.
+//!
+//! The one place this deliberately parts company with jq is the magnitude
+//! `length` returns for a number. jq re-renders it -- `1e3 | length` is `1E+3`
+//! there -- while this answers `1e3`, because a number here is the bytes it was
+//! written with and dropping a minus sign is the only edit that needs making.
+//! That is the divergence `CLAIMS.md` already records for the identity filter,
+//! kept for the same reason and for the same price.
 
 use crate::lexer::Cursor;
-use crate::value::Value;
+use crate::value::{Number, Value};
 use core::fmt;
 
 /// How deeply parentheses may nest.
@@ -128,6 +150,49 @@ enum OnError {
     Skip,
 }
 
+/// A filter written as a bare name.
+///
+/// Every rule about these four was measured against jq 1.8.1 rather than read out
+/// of its manual, including the two that are not symmetric: `null | length` is
+/// `0` while `true | length` is an error, and `keys` refuses null where indexing
+/// accepts it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Builtin {
+    /// `length`: `0` for null, the magnitude of a number, code points in a
+    /// string, elements in an array, keys in an object, an error for a boolean.
+    Length,
+    /// `keys`: an object's keys in sorted order, or an array's indices.
+    Keys,
+    /// `keys_unsorted`: the same, in the order the document wrote them.
+    KeysUnsorted,
+    /// `type`: jq's name for the type, as a string.
+    Type,
+}
+
+impl Builtin {
+    /// Every name this build answers to, sorted.
+    ///
+    /// Sorted because `FilterErrorKind::UnknownFilter` renders this list rather
+    /// than repeating it, so a fifth builtin joins that message without anyone
+    /// remembering to, and the message stays in a stable order.
+    const ALL: &'static [Self] = &[Self::Keys, Self::KeysUnsorted, Self::Length, Self::Type];
+
+    /// The spelling that selects this builtin.
+    fn name(self) -> &'static str {
+        match self {
+            Self::Keys => "keys",
+            Self::KeysUnsorted => "keys_unsorted",
+            Self::Length => "length",
+            Self::Type => "type",
+        }
+    }
+
+    /// Look one up by name.
+    fn from_name(name: &str) -> Option<Self> {
+        Self::ALL.iter().copied().find(|which| which.name() == name)
+    }
+}
+
 /// One node of the compiled tree.
 #[derive(Debug, Clone)]
 enum Node {
@@ -146,6 +211,11 @@ enum Node {
     /// `(a)?` -- a `?` with no single step to attach to, so it catches whatever
     /// the parenthesised filter raises.
     Optional(Box<Node>),
+    /// `length`, `keys`, `keys_unsorted`, `type`
+    ///
+    /// The only node with no source. A builtin reads the input it was handed,
+    /// which is what makes `length` on its own a whole filter.
+    Builtin(Builtin),
 }
 
 /// Make the outermost path step forgiving.
@@ -272,6 +342,11 @@ pub enum FilterErrorKind {
         /// The limit that was reached.
         limit: u32,
     },
+    /// A bare name that is not one of this build's filters.
+    UnknownFilter {
+        /// The name as it was written, so the message can quote it.
+        name: String,
+    },
 }
 
 impl fmt::Display for FilterErrorKind {
@@ -289,6 +364,23 @@ impl fmt::Display for FilterErrorKind {
             Self::InvalidIndex => write!(f, "expected a whole number or a quoted name"),
             Self::DepthLimitExceeded { limit } => {
                 write!(f, "parentheses nested deeper than {limit}")
+            }
+            Self::UnknownFilter { name } => {
+                // jq says `nosuch/0 is not defined` and stops there. Naming the
+                // alternatives costs nothing when there are four of them, and the
+                // overwhelmingly likely way to arrive here is a typo in one.
+                write!(f, "`{name}` is not a filter; this build has ")?;
+                for (position, which) in Builtin::ALL.iter().enumerate() {
+                    let separator = if position == 0 {
+                        ""
+                    } else if position + 1 == Builtin::ALL.len() {
+                        " and "
+                    } else {
+                        ", "
+                    };
+                    write!(f, "{separator}`{}`", which.name())?;
+                }
+                Ok(())
             }
         }
     }
@@ -319,6 +411,20 @@ pub enum EvalError {
         /// The value itself, cut short exactly where jq cuts it short.
         shown: String,
     },
+    /// `length` applied to a boolean, the one type with no length.
+    NoLength {
+        /// The type that was asked.
+        found: &'static str,
+        /// The value itself, cut short exactly where jq cuts it short.
+        shown: String,
+    },
+    /// `keys` applied to something that is neither an object nor an array.
+    NoKeys {
+        /// The type that was asked.
+        found: &'static str,
+        /// The value itself, cut short exactly where jq cuts it short.
+        shown: String,
+    },
 }
 
 impl fmt::Display for EvalError {
@@ -330,6 +436,16 @@ impl fmt::Display for EvalError {
             Self::NotIndexableByNumber { found } => write!(f, "Cannot index {found} with number"),
             Self::NotIterable { found, shown } => {
                 write!(f, "Cannot iterate over {found} ({shown})")
+            }
+            // Lower case, and no leading verb, unlike the three above. That is
+            // jq's own inconsistency rather than one introduced here:
+            // `Cannot index ...` against `boolean (true) has no length`, both
+            // measured on 1.8.1.
+            Self::NoLength { found, shown } => {
+                write!(f, "{found} ({shown}) has no length")
+            }
+            Self::NoKeys { found, shown } => {
+                write!(f, "{found} ({shown}) has no keys")
             }
         }
     }
@@ -601,6 +717,23 @@ impl Parser {
             }
             return Ok(Node::Identity);
         }
+        // Read the name out and let the borrow end before the cursor moves, the
+        // same shape `parse_step` uses for the same reason.
+        let bare = match self.peek() {
+            Some(Token::Ident(name)) => Some(name.clone()),
+            _ => None,
+        };
+        if let Some(name) = bare {
+            let offset = self.here();
+            self.at += 1;
+            return match Builtin::from_name(&name) {
+                Some(which) => Ok(Node::Builtin(which)),
+                None => Err(FilterError::new(
+                    FilterErrorKind::UnknownFilter { name },
+                    offset,
+                )),
+            };
+        }
         if matches!(self.peek(), Some(Token::OpenParen)) {
             self.at += 1;
             self.depth += 1;
@@ -690,6 +823,18 @@ fn eval(node: &Node, input: &Value, out: &mut Vec<Value>) -> Result<(), EvalErro
             out.push(input.clone());
             Ok(())
         }
+        Node::Builtin(which) => {
+            // No source to evaluate first: this is the one node that reads the
+            // input directly. `keys[0]` works because the *step* wraps the
+            // builtin rather than the other way round.
+            out.push(match which {
+                Builtin::Length => length(input)?,
+                Builtin::Keys => keys_of(input, Sorted::Yes)?,
+                Builtin::KeysUnsorted => keys_of(input, Sorted::No)?,
+                Builtin::Type => Value::String(input.type_name().to_owned()),
+            });
+            Ok(())
+        }
         Node::Pipe(first, second) => {
             let mut middle = Vec::new();
             eval(first, input, &mut middle)?;
@@ -750,6 +895,88 @@ fn eval(node: &Node, input: &Value, out: &mut Vec<Value>) -> Result<(), EvalErro
             Ok(())
         }
     }
+}
+
+/// Whether `keys_of` sorts, which is the only difference between the two filters
+/// that call it.
+///
+/// A named pair rather than a `bool`, so the call site reads `Sorted::No` instead
+/// of `false` and cannot be got backwards in silence.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Sorted {
+    /// `keys`.
+    Yes,
+    /// `keys_unsorted`.
+    No,
+}
+
+/// `length`.
+///
+/// Two of these are asymmetric in a way worth naming. Null has length `0` while a
+/// boolean has no length at all, and a string counts code points rather than
+/// bytes -- jq keeps byte counting in a separate filter, `utf8bytelength`, which
+/// this build does not have.
+fn length(value: &Value) -> Result<Value, EvalError> {
+    let count = match value {
+        Value::Null => 0,
+        Value::Bool(_) => {
+            return Err(EvalError::NoLength {
+                found: value.type_name(),
+                shown: shown(value),
+            });
+        }
+        // The magnitude, keeping the literal's own bytes. `Number::magnitude` is
+        // where the divergence from jq for a number in exponent form is written
+        // down.
+        Value::Number(number) => return Ok(Value::Number(number.magnitude())),
+        Value::String(text) => text.chars().count(),
+        Value::Array(items) => items.len(),
+        Value::Object(entries) => entries.len(),
+    };
+    Ok(count_value(count))
+}
+
+/// `keys` and `keys_unsorted`.
+///
+/// An array answers with its indices, which reads like a quirk and is the thing
+/// that lets one expression walk either kind of container.
+fn keys_of(value: &Value, sorted: Sorted) -> Result<Value, EvalError> {
+    match value {
+        Value::Object(entries) => {
+            let mut names: Vec<&str> = entries.iter().map(|(key, _)| key.as_str()).collect();
+            if sorted == Sorted::Yes {
+                // Rust orders `str` by UTF-8 bytes, which for UTF-8 is the same
+                // order as by code point, and code point order is jq's:
+                // `{"b":1,"A":2,"a":3,"B":4} | keys` gives `["A","B","a","b"]`
+                // there, every capital ahead of every lower case. Measured.
+                // Unstable is safe because two equal keys cannot reach here.
+                names.sort_unstable();
+            }
+            Ok(Value::Array(
+                names
+                    .into_iter()
+                    .map(|key| Value::String(key.to_owned()))
+                    .collect(),
+            ))
+        }
+        Value::Array(items) => Ok(Value::Array((0..items.len()).map(count_value).collect())),
+        Value::Null | Value::Bool(_) | Value::Number(_) | Value::String(_) => {
+            Err(EvalError::NoKeys {
+                found: value.type_name(),
+                shown: shown(value),
+            })
+        }
+    }
+}
+
+/// A count, as a JSON number.
+///
+/// The construction itself lives on `Number`, not here. Numbers are the one thing
+/// this crate will not synthesize casually -- entry 7 of `STDLIB.md` is the claim
+/// and `tests/claims.rs` is the check -- so this is only the name the query layer
+/// calls it by.
+fn count_value(count: usize) -> Value {
+    Value::Number(Number::from_count(count))
 }
 
 /// `.name`.
@@ -1069,13 +1296,18 @@ mod tests {
             *wont_compile(r#".["unclosed"#).kind(),
             FilterErrorKind::InvalidString
         );
-        // A name with no leading dot is a function call, and no functions exist
-        // yet -- so this has to fail rather than quietly do nothing.
+        // A bare name that is not one of the four builtins. The message names the
+        // four rather than only refusing, because the way anybody arrives here is
+        // by misspelling one of them.
         assert_eq!(
-            *wont_compile("length").kind(),
-            FilterErrorKind::Unexpected {
-                found: "`length`".to_owned()
+            *wont_compile("lenght").kind(),
+            FilterErrorKind::UnknownFilter {
+                name: "lenght".to_owned()
             }
+        );
+        assert_eq!(
+            wont_compile("lenght").kind().to_string(),
+            "`lenght` is not a filter; this build has `keys`, `keys_unsorted`, `length` and `type`"
         );
     }
 
@@ -1120,5 +1352,160 @@ mod tests {
                 limit: super::MAX_DEPTH
             }
         );
+    }
+
+    #[test]
+    fn length_answers_for_every_type_that_has_one() {
+        assert_eq!(run("length", "null"), vec!["0"]);
+        assert_eq!(run("length", r#""abc""#), vec!["3"]);
+        assert_eq!(run("length", r#""""#), vec!["0"]);
+        assert_eq!(run("length", "[1,2,3]"), vec!["3"]);
+        assert_eq!(run("length", "[]"), vec!["0"]);
+        assert_eq!(run("length", r#"{"a":1,"b":2}"#), vec!["2"]);
+        assert_eq!(run("length", "{}"), vec!["0"]);
+        // A missing field is null and null has a length, so this is `0` rather
+        // than a failure. That chain is most of what makes `length` useful.
+        assert_eq!(run(".a | length", "{}"), vec!["0"]);
+    }
+
+    #[test]
+    fn a_strings_length_is_counted_in_code_points() {
+        // Five code points and six bytes. jq counts the same five; the byte count
+        // is what its separate `utf8bytelength` reports, and conflating the two is
+        // the mistake this test exists to catch.
+        assert_eq!(run("length", "\"h\\u00e9llo\""), vec!["5"]);
+        // One astral character is one code point here and two UTF-16 units in the
+        // languages that count that way, which is where implementations differ.
+        assert_eq!(run("length", "\"a\\ud83d\\ude00b\""), vec!["3"]);
+    }
+
+    #[test]
+    fn a_numbers_length_is_its_magnitude_spelled_the_way_it_arrived() {
+        assert_eq!(run("length", "3"), vec!["3"]);
+        assert_eq!(run("length", "-5"), vec!["5"]);
+        assert_eq!(run("length", "3.5"), vec!["3.5"]);
+        assert_eq!(run("length", "-3.5"), vec!["3.5"]);
+        assert_eq!(run("length", "-0"), vec!["0"]);
+        // Thirty digits survive, which no `f64` could carry, because the sign is
+        // sliced off the literal instead of the value being re-rendered.
+        let long = "-".to_owned() + &"1".repeat(30);
+        assert_eq!(run("length", &long), vec!["1".repeat(30)]);
+        // The divergence, stated as a test rather than left as a surprise. jq
+        // answers `1E+3` because a value that passes through one of its builtins
+        // is re-rendered; here the literal is kept and only the sign is dropped.
+        // Row 16 of `CLAIMS.md` is the same divergence for the identity filter,
+        // and this is why no comparison in `scripts/jq_differential.sh` takes the
+        // length of a number.
+        assert_eq!(run("length", "1e3"), vec!["1e3"]);
+        assert_eq!(run("length", "-1e3"), vec!["1e3"]);
+    }
+
+    #[test]
+    fn a_boolean_is_the_one_type_with_no_length() {
+        assert_eq!(
+            fails("length", "true"),
+            EvalError::NoLength {
+                found: "boolean",
+                shown: "true".to_owned()
+            }
+        );
+        assert_eq!(
+            fails("length", "false").to_string(),
+            "boolean (false) has no length"
+        );
+    }
+
+    #[test]
+    fn keys_are_sorted_by_code_point_and_keys_unsorted_are_not() {
+        let mixed = r#"{"b":1,"A":2,"a":3,"B":4}"#;
+        assert_eq!(run("keys", mixed), vec![r#"["A","B","a","b"]"#]);
+        assert_eq!(run("keys_unsorted", mixed), vec![r#"["b","A","a","B"]"#]);
+        // Sorted as text and not as numbers, so `10` lands before `9`.
+        assert_eq!(
+            run("keys", r#"{"10":1,"9":2,"2":3}"#),
+            vec![r#"["10","2","9"]"#]
+        );
+        assert_eq!(run("keys", "{}"), vec!["[]"]);
+    }
+
+    #[test]
+    fn an_arrays_keys_are_its_indices() {
+        assert_eq!(run("keys", "[10,20,30]"), vec!["[0,1,2]"]);
+        assert_eq!(run("keys", "[]"), vec!["[]"]);
+        assert_eq!(run("keys_unsorted", "[10,20]"), vec!["[0,1]"]);
+    }
+
+    #[test]
+    fn keys_refuses_the_types_that_have_none() {
+        // Null is indexable, is not iterable, and has no keys: three different
+        // answers to three questions that look alike. All three measured.
+        assert_eq!(fails("keys", "null").to_string(), "null (null) has no keys");
+        assert_eq!(fails("keys", "1").to_string(), "number (1) has no keys");
+        assert_eq!(
+            fails("keys", r#""s""#).to_string(),
+            r#"string ("s") has no keys"#
+        );
+        assert_eq!(
+            fails("keys_unsorted", "true"),
+            EvalError::NoKeys {
+                found: "boolean",
+                shown: "true".to_owned()
+            }
+        );
+        // Truncated at the same fifteen characters as the iterate message,
+        // because both messages go through one `shown`.
+        assert_eq!(
+            fails("keys", "123456789012345").to_string(),
+            "number (12345678901...) has no keys"
+        );
+    }
+
+    #[test]
+    fn type_names_every_type_the_way_jq_spells_it() {
+        assert_eq!(run("type", "null"), vec![r#""null""#]);
+        assert_eq!(run("type", "true"), vec![r#""boolean""#]);
+        assert_eq!(run("type", "1"), vec![r#""number""#]);
+        assert_eq!(run("type", r#""s""#), vec![r#""string""#]);
+        assert_eq!(run("type", "[]"), vec![r#""array""#]);
+        assert_eq!(run("type", "{}"), vec![r#""object""#]);
+        // `type` is the one filter here that cannot fail, which is what makes it
+        // the thing to reach for when a document's shape is the question.
+        assert_eq!(run("length | type", "[1,2]"), vec![r#""number""#]);
+    }
+
+    #[test]
+    fn a_bare_name_is_a_builtin_and_a_dotted_one_is_still_a_field() {
+        // The grammar rule, and worth a test of its own: a language that let
+        // `length` eat `.length` would break every document with a key called
+        // `length` in it, and that is not a rare key.
+        assert_eq!(run(".length", r#"{"length":7}"#), vec!["7"]);
+        assert_eq!(run(".a.length", r#"{"a":{"length":7}}"#), vec!["7"]);
+        assert_eq!(run(r#".["length"]"#, r#"{"length":7}"#), vec!["7"]);
+        assert_eq!(run(r#"."type""#, r#"{"type":"x"}"#), vec![r#""x""#]);
+        assert_eq!(run(".keys[0]", r#"{"keys":[5,6]}"#), vec!["5"]);
+    }
+
+    #[test]
+    fn a_builtin_is_a_term_and_steps_apply_to_its_result() {
+        assert_eq!(run("keys[0]", r#"{"b":1,"a":2}"#), vec![r#""a""#]);
+        assert_eq!(run("keys[]", r#"{"b":1,"a":2}"#), vec![r#""a""#, r#""b""#]);
+        assert_eq!(run("(length)", "[1,2]"), vec!["2"]);
+        assert_eq!(run("length, keys", r#"{"a":1}"#), vec!["1", r#"["a"]"#]);
+        assert_eq!(run(".a | length", r#"{"a":[1,2]}"#), vec!["2"]);
+        assert_eq!(run("keys | length", r#"{"a":1,"b":2}"#), vec!["2"]);
+        assert_eq!(
+            run(".[] | type", "[1,null]"),
+            vec![r#""number""#, r#""null""#]
+        );
+        // Indexing the number a builtin returned, which is an ordinary type error
+        // and proves the step wrapped the builtin rather than the reverse.
+        assert_eq!(
+            fails("length.a", r#"{"a":1}"#),
+            cannot_index_number_with_a()
+        );
+        // A `?` with no step to attach to catches whatever the term raises, which
+        // is the rule `(.a.b)?` already established.
+        assert!(run("length?", "true").is_empty(), "`?` catches the builtin");
+        assert!(run("keys?", "1").is_empty(), "the same for `keys`");
     }
 }

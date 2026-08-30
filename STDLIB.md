@@ -53,23 +53,45 @@ that refuses to flip an entry it cannot evidence. An entry that still says
    *Where:* `src/value.rs` · *Status:* shipped
 
 7. **Normally:** `ryu` and `itoa` for float and integer formatting.
-   **Instead:** no number is formatted anywhere in this program, because none is
-   ever synthesized. A parsed number is written back from the exact byte span the
-   grammar validated: `Number::new` has one call site, in the lexer, and the
-   serializer emits `as_str()`, the bytes that were read. `1e2` comes back as
-   `1e2` where jq 1.8.1 answers `1E+2`, recorded as row 16 of `CLAIMS.md`, and a
-   thirty-digit integer keeps all thirty digits rather than the seventeen an
-   `f64` can carry.
+   **Instead:** no number is ever reformatted, because a number is the bytes it
+   was written with. A parsed number is written back from the exact byte span the
+   grammar validated: the serializer emits `as_str()` and never `as_f64()`, so
+   `1e2` comes back as `1e2` where jq 1.8.1 answers `1E+2`, recorded as row 16 of
+   `CLAIMS.md`, and a thirty-digit integer keeps all thirty digits rather than the
+   seventeen an `f64` can carry.
    That is the whole substitution, and it is a stronger claim than a faster
    formatter would be. Float formatting is the half of this problem with papers
    behind it and a decade of bugs in the implementations that predate `ryu`, and
    it does not happen here at all: what replaced the crate is not code, it is an
-   invariant. An invariant in prose is worth little, so both halves are checked
-   on every run. `number_text_is_reproduced_not_reformatted` in
-   `src/serializer.rs` holds the spellings above to the byte, and
-   `no_number_is_synthesized_outside_the_lexer` in `tests/claims.rs` fails the
-   build the day a second call site appears, so the day a builtin does need to
-   print a number this entry stops being true out loud rather than quietly.
+   invariant.
+   An invariant in prose is worth little, so it is checked on every run, and the
+   check earned its keep. Until commit 56 the wording here was stricter -- that
+   `Number::new` had exactly one call site, in the lexer -- and it ended with the
+   sentence that the day a builtin needed to print a number, this entry would stop
+   being true out loud rather than quietly. `length` returns a count, so that day
+   came. What the check bought was that it came as a red test rather than as a
+   paragraph nobody reread: the constant in `tests/claims.rs` now names two files
+   and three call sites, and the two new constructors in `src/value.rs` are
+   deliberately spelled `Number::new(` instead of the `Self::new(` an idiomatic
+   impl block would use, so the grep keeps counting them.
+   Counting constructors was never the claim, though; it was a proxy for it. The
+   claim is that the writing path cannot see a float, and that is now asserted
+   where it lives: `the_serializer_never_reads_a_number_as_a_float` holds
+   `src/serializer.rs` to zero occurrences of `as_f64`, and
+   `numbers_are_synthesized_only_where_entry_7_says_they_are` holds the whole of
+   `src/` to the three sites above. `number_text_is_reproduced_not_reformatted` in
+   `src/serializer.rs` still holds the spellings to the byte.
+   Which leaves one thing to say plainly rather than to leave a reader to find.
+   Integer formatting does now happen here, in exactly one shape: the count that
+   `length` and `keys` answer with is a `usize` turned into text by
+   `usize::to_string()`. That is the standard library's own integer formatter,
+   which is precisely the thing `itoa` exists to be faster than -- 1.68 times, as
+   measured on this toolchain and recorded in `BUILD_LOG.md`, against one count
+   per document. A ratio like that buys nothing worth a dependency. Float
+   formatting, the half of this problem with papers behind it and a decade of bugs
+   in the implementations that predate `ryu`, still does not happen anywhere at
+   all: no `f64` in this program is ever turned into text, which is why the
+   serializer assertion above is the one that matters.
    This is the nominated Package Killer.
    *Where:* `src/lexer.rs`, `src/value.rs`, `src/serializer.rs`, `tests/claims.rs` · *Status:* shipped
 

@@ -170,7 +170,10 @@ fn no_filter_at_all_is_a_usage_error() {
 
 #[test]
 fn a_filter_that_does_not_compile_has_its_own_exit_code() {
-    let result = run(&["length"], "{}");
+    // `lenght` and not `length`. This test was written with `length` itself, back
+    // when no bare name compiled at all; the misspelling is the better case
+    // anyway, since a typo in one of the four is how anybody arrives here.
+    let result = run(&["lenght"], "{}");
     assert_eq!(
         result.code,
         Some(3),
@@ -364,4 +367,20 @@ fn raw_output_writes_the_value_not_the_source_text() {
     assert_eq!(escaped.stdout, "a\tb\n");
     let quoted = run(&["-c", ".s"], "{\"s\":\"a\\tb\"}");
     assert_eq!(quoted.stdout, "\"a\\tb\"\n");
+}
+
+/// The filter the test above used to be written with, now that it compiles.
+///
+/// `tests/query.rs` is where the four builtins' answers are pinned; what is worth
+/// asserting out here is only that one reaches the command line at all -- on
+/// stdout, as JSON, with the exit code of a filter that ran and nothing on stderr.
+#[test]
+fn a_builtin_answers_on_the_command_line() {
+    let result = run(&["length"], r#"{"a":1,"b":2}"#);
+    assert_eq!(result.code, Some(0), "stderr was: {}", result.stderr);
+    assert_eq!(result.stdout, "2\n");
+    assert!(result.stderr.is_empty(), "got: {}", result.stderr);
+    let keys = run(&["-c", "keys"], r#"{"b":1,"a":2}"#);
+    assert_eq!(keys.code, Some(0), "stderr was: {}", keys.stderr);
+    assert_eq!(keys.stdout, "[\"a\",\"b\"]\n");
 }

@@ -114,6 +114,46 @@ impl Number {
     pub fn as_f64(&self) -> f64 {
         self.val
     }
+
+    /// A count, as a number whose text is its decimal spelling.
+    ///
+    /// The second of the two places in this crate that may build a number, and it
+    /// exists because `length` and `keys` have to answer with one. The call below
+    /// is written `Number::new` rather than the `Self::new` an impl block would
+    /// normally use, on purpose: `tests/claims.rs` counts that call spelling
+    /// across `src/`, and a check a rename can silence is not a check. Entry 7 of
+    /// `STDLIB.md` is the claim this is holding up.
+    ///
+    /// The paren is left off both names here so this sentence is not itself one of
+    /// the call sites the grep finds -- which it was, for about an hour.
+    ///
+    /// This is also the one place in the program where numeric text is generated
+    /// rather than reproduced. `usize::to_string()` is the standard library's
+    /// integer formatter, which is what `itoa` exists to be faster than; a count
+    /// printed once per document is not where that matters. No `f64` is ever
+    /// turned into text anywhere here, which is the half of the substitution that
+    /// does.
+    #[must_use]
+    pub fn from_count(count: usize) -> Self {
+        let text = count.to_string();
+        let val = text
+            .parse::<f64>()
+            .expect("a decimal integer is valid f64 syntax");
+        Number::new(text, val)
+    }
+
+    /// The same number without its sign, keeping the literal's own spelling.
+    ///
+    /// `length` on a number is its magnitude. Taking it by slicing the minus off
+    /// the text, rather than by rendering `-val`, is what lets a thirty-digit
+    /// integer keep all thirty digits; it is also where this parts company with
+    /// jq, which re-renders and answers `1E+3` for `1e3 | length`.
+    #[must_use]
+    pub fn magnitude(&self) -> Self {
+        let raw = self.as_str();
+        let text = raw.strip_prefix('-').unwrap_or(raw);
+        Number::new(text, self.val.abs())
+    }
 }
 
 /// Numeric equality, not textual. See `Value::identical` for the other one.

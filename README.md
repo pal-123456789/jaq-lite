@@ -365,7 +365,7 @@ hidden.
 `ParseError` and `FilterError` each carry an offset and a kind, and count lines
 only when asked, so nothing pays for a line table it never prints. The kind is a
 separate public enum from the message, which is what lets `main.rs` choose an exit
-code and `tests/query.rs` name eleven distinct failures without matching on
+code and `tests/query.rs` name fourteen distinct failures without matching on
 English.
 
 **A depth cap is an explicit counter, never the stack.** Both recursive descents
@@ -407,12 +407,29 @@ with thousands of keys it does not, and nothing here switches representation to
 find out. The trade is the one in the design notes above: insertion order and a
 byte-exact round trip are worth more here than a constant-time lookup.
 
-The filter language has no functions. `.a`, `."a b"`, `.[0]`, `.[-1]`, `.[]`,
-`.["a b"]`, `|`, `,`, `?` and parentheses are the whole grammar. `length`, `map`,
-`select` and every other builtin is refused at compile time with its own name in
-the message rather than silently ignored, because a tool that accepted `length`
-and returned nothing would be worse than one that will not compile it. What is
-here is the path-and-stream core that most jq one-liners are made of.
+The filter language has four functions. `.a`, `."a b"`, `.[0]`, `.[-1]`, `.[]`,
+`.["a b"]`, `|`, `,`, `?` and parentheses are the path-and-stream core that most
+jq one-liners are made of, and `length`, `keys`, `keys_unsorted` and `type` are
+the four bare names that ask a value about its own shape. `map`, `select` and
+every other builtin is refused at compile time, with its own name in the message
+and the four that do exist named beside it, rather than silently ignored: a tool
+that accepted `map` and returned nothing would be worse than one that will not
+compile it.
+
+A name is a builtin only at the start of a term, so `.length` still reaches a key
+called `length` and `.a.length` still reaches one a level down. jq draws the line
+in the same place, and that was measured rather than assumed, as was every other
+answer these four give -- including three that a reading of the manual would not
+have suggested. A string's length is its code points and not its bytes; `null` has
+a length and `true` does not; and an array's `keys` are its indices, which is what
+lets one expression walk either kind of container.
+
+`length` on a number is its magnitude with the literal's own spelling, and that is
+the one place these four deliberately disagree with jq: `1e3 | length` is `1e3`
+here and `1E+3` there, because a value that passes through one of jq's builtins is
+re-rendered and a number here is the bytes it was written with. It is the same
+divergence `.` already has, recorded as row 16 of `CLAIMS.md`, and it is why no
+comparison in `scripts/jq_differential.sh` takes the length of a number.
 
 `JQ_COLORS` is not read. Whether anything is painted follows `-M`, then `-C`, then
 `NO_COLOR`, then whether the stream is a terminal, which is the precedence jq
