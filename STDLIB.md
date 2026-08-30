@@ -53,8 +53,10 @@ that refuses to flip an entry it cannot evidence. An entry that still says
    *Where:* `src/value.rs` · *Status:* shipped
 
 7. **Normally:** `ryu` and `itoa` for float and integer formatting.
-   **Instead:** no number is ever reformatted, because a number is the bytes it
-   was written with. A parsed number is written back from the exact byte span the
+   **Instead:** no number this program reads is ever reformatted, because a number
+   is the bytes it was written with; the only integers it formats are ones it
+   counted itself, which this entry states in full below rather than leaving a
+   reader to find. A parsed number is written back from the exact byte span the
    grammar validated: the serializer emits `as_str()` and never `as_f64()`, so
    `1e2` comes back as `1e2` where jq 1.8.1 answers `1E+2`, recorded as row 16 of
    `CLAIMS.md`, and a thirty-digit integer keeps all thirty digits rather than the
@@ -109,8 +111,12 @@ that refuses to flip an entry it cannot evidence. An entry that still says
    `std::str::from_utf8`, with `Utf8Error::valid_up_to()` for the exact byte
    offset where the input stopped being valid.
    The offset is what turns "invalid UTF-8" into a diagnostic with a caret
-   under the right byte. Twenty-five fixtures in the corpus are not valid
-   UTF-8, so this path is exercised rather than theoretical.
+   under the right byte. Twenty-five fixtures in `test_parsing` are not valid
+   UTF-8 -- twenty-eight across the whole corpus, once the three
+   `string_*_invalid_codepoint*.json` transform fixtures are counted -- so this
+   path is exercised rather than theoretical. `BUILD_LOG.md` narrowed that scope
+   the day the corpus was vendored and this line kept the wider one until a pass
+   read the two together.
    *Where:* `src/error.rs`, `src/lib.rs` · *Status:* shipped
 
 10. **Normally:** `codespan-reporting`, `ariadne` or `miette`. **Instead:** a

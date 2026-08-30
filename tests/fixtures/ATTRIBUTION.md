@@ -81,7 +81,9 @@ graph:
   repository's language statistics.
 
 `cargo build --release` produces a working binary with this directory deleted.
-The only thing that breaks without it is `cargo test`.
+What breaks without it is `cargo test`, and `scripts/jq_differential.sh`, which
+reads the eight documents in `real_world/` and exits 1 when they are not there.
+Neither is part of the published artifact.
 
 This disclosure is repeated in `STDLIB.md` and the README, because a reader
 checking the zero-dependency claim should not have to find this file to learn

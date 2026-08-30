@@ -42,7 +42,10 @@
 //! now read out of `Builtin::name`, which is private, so the arms are read as
 //! text; and the test count row 14 of `CLAIMS.md` states is grepped out of the
 //! tree, because that row had already been corrected once by hand for the same
-//! drift and had drifted again by three commits.
+//! drift and had drifted again by three commits. Row 25 is read the same way one
+//! commit later and for the same reason: it was the last figure in this file that
+//! no program derived, and when a pass finally read it against the tree it was
+//! already wrong.
 //!
 //! What this file cannot do is said plainly rather than left implied. It cannot
 //! tell whether an entry's prose describes the code it points at; only a reader
@@ -449,8 +452,52 @@ fn the_hashes_recorded_in_the_build_log_agree() {
          than this assertion"
     );
 
+    // A sha256 has one size, and this log stated two for the same constant: the
+    // harness block prints 468704 bytes and a paragraph eleven hundred lines later
+    // said 482640. Nothing here noticed, because this test read only the hash lines.
+    // Every size the log states for its own binary is now held to the size it
+    // publishes, and the two figures that are deliberately something else are named
+    // rather than allowed to widen the check into uselessness.
+    let published_size = log
+        .lines()
+        .map(str::trim)
+        .find_map(|line| line.strip_prefix("bytes"))
+        .map(str::trim)
+        .expect("BUILD_LOG.md no longer publishes a byte count beside its sha256");
+    let mut sizes = 0;
+    for line in log.lines() {
+        // The control build is a different binary and the corpus is not a binary at
+        // all. Both state a size on purpose.
+        if line.contains("control") || line.contains("JSONTestSuite") {
+            continue;
+        }
+        for (at, _) in line.match_indices(" bytes") {
+            let digits: String = line[..at]
+                .chars()
+                .rev()
+                .take_while(char::is_ascii_digit)
+                .collect();
+            let stated: String = digits.chars().rev().collect();
+            // A sentence about a dozen bytes is not stating the size of a release
+            // binary, which is hundreds of kilobytes here and in any future here.
+            if !stated.parse::<u64>().is_ok_and(|value| value >= 100_000) {
+                continue;
+            }
+            sizes += 1;
+            assert_eq!(
+                stated, published_size,
+                "BUILD_LOG.md states {stated} bytes for this binary where it \
+                 publishes {published_size}"
+            );
+        }
+    }
+    assert!(
+        sizes > 1,
+        "the scan found {sizes} size(s) for this binary, so it has stopped finding them"
+    );
+
     println!(
-        "BUILD_LOG HASHES: local {}, runner {}, control differs",
+        "BUILD_LOG HASHES: local {}, runner {}, control differs, {sizes} sizes agree",
         &published[..8],
         &attempt_1[..8]
     );
@@ -975,7 +1022,32 @@ fn the_ledger_counts_the_tests_the_tree_actually_has() {
         files.len()
     );
 
-    println!("LEDGER TESTS: {counted} in {} files", files.len());
+    // Row 25 is the only row that states a per-target count, and until this commit
+    // it was the last figure in this file that no program re-derived. It said
+    // thirteen while this file held fourteen tests, and every gate passed while it
+    // was false, which is the argument the assertion above already makes.
+    let mine = read("tests/claims.rs");
+    let here = mine.lines().filter(|line| line.trim() == "#[test]").count();
+    let row_25 = claims
+        .lines()
+        .find(|line| line.starts_with("| 25 |"))
+        .expect("CLAIMS.md no longer has a row 25");
+    let per_target: usize = row_25
+        .split('|')
+        .nth(4)
+        .expect("row 25 of CLAIMS.md has no evidence cell")
+        .split_whitespace()
+        .find_map(|word| word.parse::<usize>().ok())
+        .expect("row 25's evidence no longer states a number");
+    assert_eq!(
+        per_target, here,
+        "row 25 of CLAIMS.md says {per_target} passing and this file carries {here} tests"
+    );
+
+    println!(
+        "LEDGER TESTS: {counted} in {} files, {here} in this one",
+        files.len()
+    );
 }
 
 /// The differential compares every builtin, and runs the count it claims.
@@ -1081,8 +1153,30 @@ fn the_differential_compares_every_builtin_this_build_has() {
         "the differential runs {claimed} comparisons and the README does not say so"
     );
 
+    // jq is a yardstick and not a dependency, and that is a property of `src/`
+    // rather than a sentence in a README: nothing here spawns a process, so a
+    // machine with no jq on it builds and runs this binary exactly the same way.
+    // The one use of `std::process` is the exit code the CLI returns, named here so
+    // that a second one has to be argued for.
+    let mut mentions = 0;
+    for path in source_files() {
+        let text = fs::read_to_string(&path).expect("cannot read a source file");
+        assert!(
+            !text.contains("Command::new") && !text.contains("process::Command"),
+            "{} spawns a process, so jq has stopped being only a yardstick",
+            path.display()
+        );
+        mentions += text.matches("process::").count();
+    }
+    assert_eq!(
+        mentions, 1,
+        "src/ names std::process {mentions} time(s); the only permitted use is the \
+         ExitCode the CLI returns"
+    );
+
     println!(
-        "DIFFERENTIAL: {claimed} comparisons, {} builtins, {documents} documents",
+        "DIFFERENTIAL: {claimed} comparisons, {} builtins, {documents} documents, \
+         no subprocess",
         roster.len()
     );
 }

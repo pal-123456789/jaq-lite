@@ -34,7 +34,7 @@ row says otherwise.
 | 22 | Two release builds of this source on one machine are byte identical, and the recorded constant belongs to the host toolchain rather than to the machine | `bash scripts/reproducible_build.sh`, then CI run 18, attempts 1 and 2 | four assertions PASS on three machines; `bbf72e72` twice on `ubuntu-latest`, `46df3c55` here |
 | 23 | Documents that `cargo`, `rustc` and PowerShell really emitted round trip, and the four that arrived without whitespace come back byte for byte | `cargo test --test real_world -- --nocapture --test-threads=1` | 3 passing; 8 documents, 4 byte-identical, 104 + 48 escapes decoded, 31 raw bytes unchanged (measured 2026-08-30) |
 | 24 | Every compatibility claim in the README came from running `jq` beside this binary, and the two still agree | `scripts/jq_differential.sh` | 62 comparisons, 0 disagreements against jq-1.8.1 (measured 2026-08-30); every builtin is reached by at least one of them and the script fails on one that is not; the count is held to the script, to this row and to the README by `the_differential_compares_every_builtin_this_build_has`; re-run by the `jq differential` CI job on every push |
-| 25 | The platforms table names both targets this was built on, and the compiler version in it is the one `Cargo.toml` pins | `cargo test --test claims -- --nocapture --test-threads=1` | 13 passing; two hosts, both rustc 1.98.0 (measured 2026-08-30) |
+| 25 | The platforms table names both targets this was built on, and the compiler version in it is the one `Cargo.toml` pins | `cargo test --test claims -- --nocapture --test-threads=1` | 14 passing; two hosts, both rustc 1.98.0 (measured 2026-08-30); the count is the one this file holds, read back out of it by `the_ledger_counts_the_tests_the_tree_actually_has` |
 | 26 | The eleven builtins answer the way jq 1.8.1 answers, including where they refuse | `cargo test --test query -- --nocapture --test-threads=1` | 59 of the 101 table rows call a builtin by name, and every value in them was measured against jq 1.8.1 before any of it was implemented; the roster the test iterates is read out of the rejection message rather than repeated, so a twelfth builtin with no rows of its own fails here |
 | 27 | Numbers are still never reformatted, now that a builtin has to print one | `cargo test --test claims -- --nocapture --test-threads=1` | 3 `Number::new` call sites in the 2 files entry 7 names, and 0 reads of `as_f64` in `src/serializer.rs` |
 | 28 | Every bonus the event scores is accounted for in the README, including the one declined | `cargo test --test claims -- --nocapture --test-threads=1` | `+11 of a possible +16`, entry 7 nominated as the Package Killer, 4 paths named and all of them present |
@@ -71,6 +71,24 @@ builtins there are. Every gate passed while all four were false, which is the
 argument for row 29 -- a figure no program re-derives is a figure that is true on
 the day it is typed. Three of the four are now re-derived, and the fourth is the
 count of a table that a test compares against `ROW_COUNT`.
+
+Row 25 was corrected the next day, and it is the one worth reading twice. The
+paragraph above says three of the four figures are re-derived. Row 25's was not one
+of them, because the number in it is not the claim: the claim is the platforms
+table, and that is checked. The pass count beside it was decoration, and decoration
+is where a stale figure hides. It said thirteen while `tests/claims.rs` held
+fourteen tests, it survived the commit that added the fourteenth, and it was found
+by reading this file against the tree rather than by any gate. It is now read back
+out of that file, so the decoration is held to the standard of the claim.
+
+Two figures elsewhere were wrong in the same reading and are corrected in the same
+commit. A paragraph of `BUILD_LOG.md` stated a size for the published binary that
+disagreed with the harness transcript printed a thousand lines above it, and one
+sha256 cannot have two sizes; every size that log states for its own binary is now
+held to the one it publishes, by the test that already read its hashes. Entry 9 of
+`STDLIB.md` still scoped a count of invalid-UTF-8 fixtures to the whole corpus
+after the log had already narrowed it to `test_parsing`; that one is a sentence, and
+no program here checks it. Saying so is the rule this file opens with.
 
 Rows 26 and 27 were added earlier the same day, with the first four builtins. Row
 27 replaces a

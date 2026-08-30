@@ -168,7 +168,9 @@ cannot drift apart in either of them.
 
 Output is byte-compatible with `jq` wherever a choice exists. Every claim in this
 section was produced by running `jq-1.8.1` beside this binary, not by reading its
-manual, which documents almost none of it. Two divergences are deliberate.
+manual, which documents almost none of it. Three divergences are deliberate: two
+are in this section, and the third is the one builtin that refuses an input jq
+accepts, described with the builtins below.
 
 **Numbers are re-emitted from the bytes that were read.** jq re-renders them
 through its own decimal formatter, so it prints a canonical form rather than the
@@ -442,11 +444,16 @@ out of the error variant that reports them: the limit is a field rather than pro
 inside a message, which is the only way a dependent can learn a number the crate
 does not export.
 
-**Anything measured is asserted as a floor, never as a figure.** The throughput
-test, the conformance counts and the substitution ledger share one idiom: read a
+**A measurement the environment can move is asserted as a floor; a measurement a
+committed input fixes is asserted exactly.** The throughput test, the conformance
+counts and the substitution ledger are the first kind and share one idiom: read a
 committed number, take the maximum of it and whatever the environment asks for,
 and fail below the result. A floor can be raised by a passing run and lowered by
-nothing, which is the opposite of a number typed into a document.
+nothing, which is the opposite of a number typed into a document. The escape counts
+in `tests/real_world.rs` are the second kind and are equalities on purpose:
+`culture.json` is vendored byte for byte, so its 104 escaped apostrophes are a
+precondition rather than a measurement, and the test says so in the message it
+would fail with. A floor there would let a truncated fixture prove the round trip.
 
 ## Honest limits
 
@@ -510,19 +517,34 @@ with the number `0` rather than the string `"0"`, while `from_entries` refuses a
 key that is not a string at all.
 
 Those answers are compared rather than remembered. `scripts/jq_differential.sh`
-runs 62 comparisons against jq on every push: the identity filter on each document
-of the real-world corpus, six paths through them, the eleven builtins against those
-same documents, and then the shapes that corpus does not contain -- an array of
-arrays, an empty object, three keys in the wrong order. The script fails on a
-builtin that no comparison reaches as loudly as it fails on a disagreement,
-because a differential is worth exactly the ground it covers.
+runs 62 comparisons against jq on every push to `main` and every pull request: the
+identity filter on each document of the real-world corpus, six paths through them,
+the eleven builtins against those same documents, and then the shapes that corpus
+does not contain -- an array of arrays, an empty object, three keys in the wrong
+order. The script fails on a builtin that no comparison reaches as loudly as it
+fails on a disagreement, because a differential is worth exactly the ground it
+covers.
 
-`length` on a number is its magnitude with the literal's own spelling, and that is
-the one place these eleven deliberately disagree with jq: `1e3 | length` is `1e3`
-here and `1E+3` there, because a value that passes through one of jq's builtins is
-re-rendered and a number here is the bytes it was written with. It is the same
-divergence `.` already has, recorded as row 16 of `CLAIMS.md`, and it is why no
-comparison in `scripts/jq_differential.sh` takes the length of a number.
+jq is the yardstick and never a dependency. That script is the only file in this
+repository that runs another implementation; nothing in `src/` spawns a process at
+all, the one use of `std::process` being the exit code the CLI returns, and a test
+holds both of those to the source rather than to this paragraph. On a machine with
+no jq the binary builds, runs and passes `cargo test` exactly as it does here --
+what fails is a CI job whose whole purpose is to check a claim this README makes.
+
+`length` on a number is its magnitude with the literal's own spelling, and it is one
+of the two places these eleven deliberately disagree with jq: `1e3 | length` is
+`1e3` here and `1E+3` there, because a value that passes through one of jq's
+builtins is re-rendered and a number here is the bytes it was written with. It is
+the same divergence `.` already has, recorded as row 16 of `CLAIMS.md`, and it is
+why no comparison in `scripts/jq_differential.sh` takes the length of a number.
+
+The other is `from_entries`, which refuses a key that is not a string where jq
+stringifies it through `tojson`. That is the first divergence read from the other
+end rather than a second decision: accepting a numeric key would mean printing a
+number this program never read, and the answer jq gives for it is a number
+re-rendered from a double. No comparison in the differential passes a non-string
+key either, for the same reason it never takes the length of one.
 
 `JQ_COLORS` is not read. Whether anything is painted follows `-M`, then `-C`, then
 `NO_COLOR`, then whether the stream is a terminal, which is the precedence jq

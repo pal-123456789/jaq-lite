@@ -1438,7 +1438,7 @@ the dependency graph has one node in it, 178 tests pass and none fail, 95 of 95
 documents are accepted and 188 of 188 rejected under the floors CI sets, fourteen
 differential comparisons agree byte for byte with jq 1.8.1, and a shallow clone of
 `origin` builds and passes all 178 tests offline before being removed again. The
-reproducible-build harness returned the same constant and the same 482640 bytes it
+reproducible-build harness returned the same constant and the same 468704 bytes it
 returned two days earlier, on a different boot of the same machine, which is the
 first evidence in this log that the published constant is stable across days and
 not merely within one sitting.
@@ -1547,9 +1547,9 @@ asserted against what the compiler really says, by the first test in the same
 file. If the code's roster changed and the message with it, that row fails first.
 Given a green suite, the message is the roster.
 
-## Why eleven and not fifteen
+## Why eleven and not twenty
 
-Four builtins were measured against jq 1.8.1 and then cut, which is worth
+Nine builtins were measured against jq 1.8.1 and then cut, which is worth
 recording because a cut with a measurement behind it is a design decision and a
 cut without one is a shrug.
 
@@ -1663,3 +1663,60 @@ for byte against jq-1.8.1, none of them empty, every builtin reached. The bytes
 that were measured are the bytes that were committed -- the file was copied into
 place rather than typed again, because a script re-typed after it was measured is
 a script that has not been measured.
+
+## Reading the tree against itself
+
+Everything above was written to be checked, so on the last evening before the
+freeze the tree was read the way a hostile reviewer would read it: three passes,
+each looking for one shape of defect, none of them allowed to write anything. One
+walked the dependency surface. One took every row of `CLAIMS.md` and went looking
+for the evidence the row names. One read the documents side by side for the same
+quantity stated twice with two different values.
+
+The dependency pass came back with nothing to fix and one thing to say better.
+`[dependencies]` is empty, `Cargo.lock` has one package in it, there is no
+`build.rs`, no `extern`, no FFI, no `include_str!`, no `cargo install` and no
+network fetch anywhere in the tree, and the 340 vendored fixtures verify against
+`FIXTURES_MANIFEST.sha256` whose digest is the one `ATTRIBUTION.md` states. What it
+did find is that `scripts/jq_differential.sh` needs jq, that CI hard-fails when jq
+is absent, and that `STDLIB.md` lists jq among the things this project replaces --
+three true statements that a reader can assemble into a wrong conclusion. The
+README now says the thing that closes it: jq is the yardstick and never a
+dependency, nothing in `src/` spawns a process, and a test holds that to the source
+rather than to the sentence.
+
+The claims pass checked twenty-nine rows. Every test and script a row names exists,
+twenty-one rows were sound, seven state a figure beside a claim where the claim is
+what reproduces, and one was simply wrong: row 25 said thirteen passing where this
+target holds fourteen. That is the whole finding, and it is the most useful one in
+the tree, because the row is in the file whose subject is stale figures and it went
+stale the same evening the fourteenth test was added.
+
+The prose pass found ten places where two documents disagreed, of which four were
+worth a commit. A paragraph a thousand lines below the harness transcript gave the
+published binary a size the transcript contradicts, and one sha256 cannot have two
+sizes. A heading asked why eleven builtins and not fifteen above a section that
+names nine cut ones, which makes it twenty. Entry 9 of `STDLIB.md` scoped a fixture
+count to the whole corpus after this log had already narrowed it to `test_parsing`.
+The README claimed anything measured is asserted as a floor and never as a figure,
+while `tests/real_world.rs` asserts 104 escaped apostrophes exactly -- which is
+correct, and the sentence was wrong: a figure the environment can move is a floor, a
+figure a vendored input fixes is an equality, and a floor on the second kind would
+let a truncated fixture prove a round trip. The rest were narrative in this log,
+frozen at the commit that wrote them, and correcting those would be the actual
+dishonesty.
+
+Two of the four are now held by tests rather than by attention. The size scan lives
+in the test that already read this log's hashes, with the control build and the
+vendored corpus named as the two figures that are deliberately something else,
+because a check that fires on the artifact guaranteeing the property is a check
+that gets loosened until it stops working. Row 25's count is read back out of
+`tests/claims.rs`. The other two are sentences, and no program here can check a
+sentence; what it can do is say which is which, which is what the closing note of
+`CLAIMS.md` now does.
+
+The general finding is worth more than any of the ten. Every figure that went stale
+this week was decoration rather than claim -- a pass count beside a row about a
+platforms table, a size beside a hash, a heading above a list. The claims were
+checked because they looked like claims. Nothing looks less like a claim than a
+number in an aside, and nothing rots faster.
