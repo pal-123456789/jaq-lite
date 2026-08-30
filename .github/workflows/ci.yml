@@ -160,3 +160,37 @@ jobs:
             echo "the claim as identical source plus identical rustc plus identical host"
             echo "toolchain, and pins the first two in this repository."
           fi
+
+  # A third job rather than a step in the gate, for the same reason the rebuild
+  # has its own: this is a claim a judge can check in one click, and it is worth
+  # its own name and its own log. Linux only. The Windows runner ships a
+  # different jq build, and a second chance to disagree about a version number is
+  # not a second piece of information.
+  differential:
+    name: jq differential (ubuntu-latest)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      # No pin block here. rust-toolchain.toml already forces the compiler inside
+      # this directory, and the gate job above is what proves the three files
+      # naming it agree; repeating that here a third time would be noise. The
+      # version is printed because a build log with no compiler in it is a build
+      # log you cannot read six months later.
+      - name: Build the binary under comparison
+        run: |
+          rustc --version
+          cargo build --release --locked --offline
+
+      # The runner's jq is whatever its image ships, which is not necessarily the
+      # 1.8.1 the README names. The script prints both versions before it
+      # compares anything, and it fails on disagreement either way: a
+      # differential that forgave a mismatch because the versions differed would
+      # forgive every real defect too, since the versions nearly always differ.
+      # If this job goes red on a version difference rather than on a defect, the
+      # first lines of the log say which.
+      - name: jq must agree with this binary, byte for byte
+        run: scripts/jq_differential.sh

@@ -33,6 +33,7 @@ row says otherwise.
 | 21 | The README names both nesting caps the code enforces, and the lookup cost `src/value.rs` says it states | `cargo test --test claims -- --nocapture --test-threads=1` | caps 128 and 64 named, lookup cost stated |
 | 22 | Two release builds of this source on one machine are byte identical, and the recorded constant belongs to the host toolchain rather than to the machine | `bash scripts/reproducible_build.sh`, then CI run 18, attempts 1 and 2 | four assertions PASS on three machines; `bbf72e72` twice on `ubuntu-latest`, `46df3c55` here |
 | 23 | Documents that `cargo`, `rustc` and PowerShell really emitted round trip, and the four that arrived without whitespace come back byte for byte | `cargo test --test real_world -- --nocapture --test-threads=1` | 3 passing; 8 documents, 4 byte-identical, 104 + 48 escapes decoded, 31 raw bytes unchanged (measured 2026-08-30) |
+| 24 | Every compatibility claim in the README came from running `jq` beside this binary, and the two still agree | `scripts/jq_differential.sh` | 14 comparisons, 0 disagreements against jq-1.8.1 (measured 2026-08-30); re-run by the `jq differential` CI job on every push |
 
 Row 9 was corrected on 2026-08-29. It recorded a binary that printed its own
 version, which stopped being true the moment the CLI learned to take arguments.

@@ -1203,3 +1203,51 @@ counts are pinned, along with the 31 raw non-ASCII bytes that pass through
 untouched in the same file. The paragraph quotes all three numbers, and
 `tests/claims.rs` now reads them back out of the harness and fails if the prose
 and the measurement stop agreeing.
+
+## Turning "we ran jq beside it" into a command
+
+The compatibility section of the README opens by saying that every claim in it was
+produced by running jq against this binary rather than by reading jq's manual,
+which documents almost none of the cases that matter. That sentence was true and
+it was also the weakest kind of claim in the repository: a report of something the
+author had once done at a terminal. Everything else here is a command a reader can
+run. This was prose.
+
+`scripts/jq_differential.sh` is that sentence as a command. Fourteen comparisons,
+which is the number the corpus documentation already quoted: the identity filter
+on each of the eight documents, then six paths, each chosen because it is a place
+two independent implementations could reasonably part company. A nested field. A
+string containing backslashes, which both tools have to re-escape on the way out.
+An iteration with ten outputs, which asks what separates the members of a stream.
+A negative index. An index in the middle of a path rather than at its end. And
+`.BaseUtcOffset.TotalDays`, which is `0.22916666666666666` -- seventeen
+significant digits, the exact literal that changes if either tool re-renders a
+number through a double formatter instead of reprinting the bytes it read.
+
+Three decisions in it are worth writing down, because each one is a way this
+script could have been useless.
+
+It fails when jq is absent rather than skipping. A differential that exits 0
+having compared nothing is worse than no differential, because it reports green
+forever. The same reasoning already governs the hash-extraction step in CI, which
+is gated even though the hash comparison itself is not.
+
+It asserts the comparison *count*, not just the agreement. A loop over a corpus
+directory that has been moved or emptied compares nothing and agrees perfectly.
+The count is checked against the number this repository claims in three places, so
+adding a comparison without updating the prose is a red run, and so is losing a
+document.
+
+It compares standard output only. The two tools word their diagnostics
+differently on purpose -- that difference is deliberate, and it is asserted
+against its own expectations in `tests/query.rs`. Folding stderr into a
+byte-for-byte differential would have turned a test of behaviour into a test of
+prose, and it would have been red from the first run for a reason that is not a
+defect.
+
+The CI job that runs it is Linux only, and it gates on agreement even when the
+runner's jq is not the 1.8.1 the README names. That combination is deliberate. A
+differential that forgave a mismatch whenever the versions differed would forgive
+every real defect too, since the versions almost always differ. So it fails, and
+the script prints both versions first: if that job ever goes red on a version
+difference rather than on a defect, the first line of the log says which.
